@@ -48,9 +48,17 @@ function mapColores(row: Record<string, unknown> | null): ThemeColors {
     brand: row.brand as string | undefined,
     'brand-dark': row.brand_dark as string | undefined,
     'brand-light': row.brand_light as string | undefined,
-    bg: row.bg as string | undefined,
-    text: row.text_color as string | undefined,
+    'brand-mid': row.brand_mid as string | undefined,
     accent: row.accent as string | undefined,
+    bg: row.bg as string | undefined,
+    bg2: row.bg2 as string | undefined,
+    bg3: row.bg3 as string | undefined,
+    surface: row.surface as string | undefined,
+    text: row.text_color as string | undefined,
+    text2: row.text2 as string | undefined,
+    text3: row.text3 as string | undefined,
+    border: row.border as string | undefined,
+    border2: row.border2 as string | undefined,
   };
 }
 
@@ -60,15 +68,22 @@ export async function getConfigColores(): Promise<ThemeColors | null> {
 }
 
 export async function saveConfigColores(colores: ThemeColors): Promise<void> {
-  const { error } = await supabase.from('config_colores').upsert({
-    id: true,
-    brand: colores.brand,
-    brand_dark: colores['brand-dark'],
-    brand_light: colores['brand-light'],
-    bg: colores.bg,
-    text_color: colores.text,
-    accent: colores.accent,
-  }, { onConflict: 'id' });
+  const row: Record<string, unknown> = { id: true };
+  if (colores.brand !== undefined) row.brand = colores.brand;
+  if (colores['brand-dark'] !== undefined) row.brand_dark = colores['brand-dark'];
+  if (colores['brand-light'] !== undefined) row.brand_light = colores['brand-light'];
+  if (colores['brand-mid'] !== undefined) row.brand_mid = colores['brand-mid'];
+  if (colores.accent !== undefined) row.accent = colores.accent;
+  if (colores.bg !== undefined) row.bg = colores.bg;
+  if (colores.bg2 !== undefined) row.bg2 = colores.bg2;
+  if (colores.bg3 !== undefined) row.bg3 = colores.bg3;
+  if (colores.surface !== undefined) row.surface = colores.surface;
+  if (colores.text !== undefined) row.text_color = colores.text;
+  if (colores.text2 !== undefined) row.text2 = colores.text2;
+  if (colores.text3 !== undefined) row.text3 = colores.text3;
+  if (colores.border !== undefined) row.border = colores.border;
+  if (colores.border2 !== undefined) row.border2 = colores.border2;
+  const { error } = await supabase.from('config_colores').upsert(row, { onConflict: 'id' });
   if (error) throw error;
 }
 

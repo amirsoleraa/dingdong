@@ -212,9 +212,17 @@ export interface ThemeColors {
   brand?: string;
   'brand-dark'?: string;
   'brand-light'?: string;
-  bg?: string;
-  text?: string;
+  'brand-mid'?: string;
   accent?: string;
+  bg?: string;
+  bg2?: string;
+  bg3?: string;
+  surface?: string;
+  text?: string;
+  text2?: string;
+  text3?: string;
+  border?: string;
+  border2?: string;
 }
 
 export type PedidoTab = 'activos' | 'preparando' | 'camino' | 'entregado' | 'cancelado';
