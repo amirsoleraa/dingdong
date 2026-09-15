@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Plus, Pencil, Trash2, RefreshCw } from 'lucide-react';
-import { setDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { createCupon, updateCupon, deleteCupon } from '@/lib/data/cupones';
 import { useAppStore } from '@/stores/useAppStore';
 import { Modal } from '@/components/ui/Modal';
 import { Toggle } from '@/components/ui/Toggle';
@@ -60,11 +59,11 @@ export function CouponsPanel() {
         activo: form.activo,
       };
       if (editId) {
-        await updateDoc(doc(db, 'cupones', editId), data);
+        await updateCupon(editId, data);
         setCupones({ ...cupones, [editId]: { id: editId, usos: editUsos, ...data } });
         showToast('Cupón actualizado');
       } else {
-        await setDoc(doc(db, 'cupones', data.codigo), { ...data, usos: 0 });
+        await createCupon({ ...data, usos: 0 });
         setCupones({ ...cupones, [data.codigo]: { id: data.codigo, usos: 0, ...data } });
         showToast('Cupón creado');
       }
@@ -79,7 +78,7 @@ export function CouponsPanel() {
   async function handleDelete(id: string) {
     const ok = await confirm({ title: 'Eliminar cupón', message: '¿Eliminar este cupón?', danger: true, confirmLabel: 'Eliminar' });
     if (!ok) return;
-    await deleteDoc(doc(db, 'cupones', id));
+    await deleteCupon(id);
     const next = { ...cupones };
     delete next[id];
     setCupones(next);

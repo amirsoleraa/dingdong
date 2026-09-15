@@ -1,12 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { Truck, Save, MapPin, Loader } from 'lucide-react';
-import { setDoc, getDoc, doc, serverTimestamp } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { saveConfigMain, getDeliverySettings, saveDeliverySettings } from '@/lib/data/config';
 import { useAppStore } from '@/stores/useAppStore';
 import { Toggle } from '@/components/ui/Toggle';
 import { loadGoogleMaps } from '@/lib/googleMaps';
 import { fmtPrice } from '@/lib/utils';
-import type { DeliverySettings } from '@/types';
 
 // ─── Sub-componente: selector de origen (mapa + autocomplete) ────────────────
 // Solo se monta cuando Google Maps ya está cargado, por eso el useEffect
@@ -126,10 +124,9 @@ export function DeliveryPanel() {
 
   // Carga configuración por km
   useEffect(() => {
-    getDoc(doc(db, 'config', 'delivery_settings'))
-      .then(snap => {
-        if (!snap.exists()) return;
-        const d = snap.data() as DeliverySettings;
+    getDeliverySettings()
+      .then(d => {
+        if (!d) return;
         setOriginLat(d.origin_lat ?? 0);
         setOriginLng(d.origin_lng ?? 0);
         setOriginAddress(d.origin_address ?? '');
@@ -163,7 +160,7 @@ export function DeliveryPanel() {
         domicilioTipo:   tipo,
         domicilioValor:  parseFloat(valor) || 0,
       };
-      await setDoc(doc(db, 'config', 'main'), configUpdates, { merge: true });
+      await saveConfigMain(configUpdates);
       setCfg(configUpdates);
 
       if (tipo === 'por_km') {
@@ -172,15 +169,13 @@ export function DeliveryPanel() {
           setSaving(false);
           return;
         }
-        const ds = {
-          origin_lat:    originLat,
-          origin_lng:    originLng,
+        await saveDeliverySettings({
+          origin_lat: originLat,
+          origin_lng: originLng,
           origin_address: originAddress,
-          price_per_km:  pkm,
-          updated_at:    serverTimestamp(),
+          price_per_km: pkm,
           ...(mf ? { min_delivery_fee: mf } : {}),
-        };
-        await setDoc(doc(db, 'config', 'delivery_settings'), ds);
+        });
       }
 
       showToast('Configuración de domicilio guardada');

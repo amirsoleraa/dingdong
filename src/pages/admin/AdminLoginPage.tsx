@@ -1,9 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
-import { doc, getDoc } from 'firebase/firestore';
 import { useAuth } from '@/hooks/useAuth';
 import { useAppStore } from '@/stores/useAppStore';
-import { db } from '@/lib/firebase';
+import { getProfile } from '@/lib/data/profiles';
 
 export function AdminLoginPage() {
   const navigate = useNavigate();
@@ -17,10 +16,10 @@ export function AdminLoginPage() {
 
   useEffect(() => {
     if (!user) { setIsAdmin(false); return; }
-    getDoc(doc(db, 'users', user.uid))
-      .then(snap => setIsAdmin(snap.data()?.role === 'admin'))
+    getProfile(user.id)
+      .then(profile => setIsAdmin(profile?.role === 'admin'))
       .catch(() => setIsAdmin(false));
-  }, [user?.uid]);
+  }, [user?.id]);
 
   // Only redirect once role is confirmed — form stays visible while checking
   if (!authLoading && isAdmin) return <Navigate to="/admin" replace />;

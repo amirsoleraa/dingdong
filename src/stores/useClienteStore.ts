@@ -3,8 +3,7 @@
 // ═══════════════════════════════════════════════
 
 import { create } from 'zustand';
-import { doc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
-import { clienteDb } from '@/lib/firebase';
+import { updateClienteProfile } from '@/lib/data/clientes';
 import type { ClienteProfile } from '@/types';
 
 interface ClienteState {
@@ -31,9 +30,7 @@ export const useClienteStore = create<ClienteState>((set, get) => ({
 
     set({ cliente: { ...cliente, favoritos: next } });
     try {
-      await updateDoc(doc(clienteDb, 'clientes', cliente.id), {
-        favoritos: isFav ? arrayRemove(productId) : arrayUnion(productId),
-      });
+      await updateClienteProfile(cliente.id, { favoritos: next });
     } catch {
       set({ cliente });
     }

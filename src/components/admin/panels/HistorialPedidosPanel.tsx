@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { onSnapshot, collection, query, orderBy, updateDoc, deleteDoc, doc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { subscribeToHistorialPedidos, updateHistorialDia, deleteHistorialDia } from '@/lib/data/historial';
 import { useAppStore } from '@/stores/useAppStore';
 import { useAdminStore } from '@/stores/useAdminStore';
 import { fmtPrice } from '@/lib/utils';
@@ -101,18 +100,12 @@ export function HistorialPedidosPanel() {
   const [dateTo,   setDateTo]   = useState('');
 
   useEffect(() => {
-    const q = query(collection(db, 'historial_pedidos'), orderBy('creadoEn', 'desc'));
-    const unsub = onSnapshot(q, snap => {
-      const list: HistorialDia[] = [];
-      snap.forEach(d => list.push({ id: d.id, ...d.data() } as HistorialDia));
+    const unsub = subscribeToHistorialPedidos(list => {
       setDias(list);
-      setLoading(false);
-    }, () => {
-      showToast('Error al cargar historial', 'error');
       setLoading(false);
     });
     return unsub;
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // Filtered dias by date range
   const filtered = useMemo(() => {
@@ -195,7 +188,7 @@ export function HistorialPedidosPanel() {
       const totalEntregados = updatedPedidos.filter(p => p.estado === 'entregado').length;
       const totalCancelados = updatedPedidos.filter(p => p.estado === 'cancelado').length;
       const totalRecaudo    = updatedPedidos.filter(p => p.estado === 'entregado').reduce((s, p) => s + p.total, 0);
-      await updateDoc(doc(db, 'historial_pedidos', editingPedido.diaId), {
+      await updateHistorialDia(editingPedido.diaId, {
         pedidos: updatedPedidos, totalEntregados, totalCancelados, totalRecaudo,
       });
       setEditingPedido(null);
@@ -333,7 +326,7 @@ export function HistorialPedidosPanel() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     {pinUnlocked && (
                       <button
-                        onClick={e => { e.stopPropagation(); Promise.all(dia.docIds.map(id => deleteDoc(doc(db, 'historial_pedidos', id)))).then(() => showToast('Día eliminado', 'success')).catch(() => showToast('Error al eliminar', 'error')); }}
+                        onClick={e => { e.stopPropagation(); Promise.all(dia.docIds.map(id => deleteHistorialDia(id))).then(() => showToast('Día eliminado', 'success')).catch(() => showToast('Error al eliminar', 'error')); }}
                         style={{ width: 28, height: 28, borderRadius: 7, border: 'none', background: '#fee2e2', color: '#dc2626', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                         title="Eliminar este día del historial"
                       >

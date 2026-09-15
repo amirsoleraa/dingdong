@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { MapPin, Navigation, Loader, CheckCircle, Map, X, Crosshair } from 'lucide-react';
-import { getDoc, doc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { getDeliverySettings } from '@/lib/data/config';
 import { loadGoogleMaps } from '@/lib/googleMaps';
 import { haversineKm, calcDeliveryFee } from '@/lib/haversine';
 import { fmtPrice } from '@/lib/utils';
@@ -385,8 +384,8 @@ export function LocationPicker({ onChange, initialData, renderTrigger }: Props) 
   }, []);
 
   useEffect(() => {
-    getDoc(doc(db, 'config', 'delivery_settings'))
-      .then(snap => { if (snap.exists()) setDeliverySettings(snap.data() as DeliverySettings); })
+    getDeliverySettings()
+      .then(settings => { if (settings) setDeliverySettings(settings); })
       .catch(() => {})
       .finally(() => setSettingsLoading(false));
   }, []);

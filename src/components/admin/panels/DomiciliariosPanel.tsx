@@ -1,9 +1,8 @@
 import { useState } from 'react';
 import { Plus, Pencil, Trash2, Bike, Phone, User, Lock, Eye, EyeOff } from 'lucide-react';
-import { collection, addDoc, updateDoc, deleteDoc, doc, setDoc } from 'firebase/firestore';
-import { getApp, initializeApp } from 'firebase/app';
-import { getAuth, createUserWithEmailAndPassword, signOut, updatePassword, signInWithEmailAndPassword } from 'firebase/auth';
-import { db, firebaseConfig } from '@/lib/firebase';
+import { createClient } from '@supabase/supabase-js';
+import { createDomiciliario, updateDomiciliario, deleteDomiciliario } from '@/lib/data/domiciliarios';
+import { createProfile } from '@/lib/data/profiles';
 import { useAppStore } from '@/stores/useAppStore';
 import { Modal } from '@/components/ui/Modal';
 import { Toggle } from '@/components/ui/Toggle';
@@ -13,12 +12,17 @@ import type { Domiciliario } from '@/types';
 
 const DOM_EMAIL_DOMAIN = '@dom.barrileros.co';
 
-function getSecondaryAuth() {
-  try {
-    return getAuth(getApp('dom-secondary'));
-  } catch {
-    return getAuth(initializeApp(firebaseConfig, 'dom-secondary'));
-  }
+/**
+ * Cliente Supabase desechable (sin persistir sesión) para crear la cuenta de
+ * Auth del nuevo domiciliario sin pisar la sesión del admin en este mismo
+ * navegador — equivalente a la "secondary app" que usaba Firebase.
+ */
+function getThrowawayClient() {
+  return createClient(
+    import.meta.env.VITE_SUPABASE_URL as string,
+    import.meta.env.VITE_SUPABASE_ANON_KEY as string,
+    { auth: { persistSession: false, autoRefreshToken: false } },
+  );
 }
 
 interface DomForm {
@@ -51,7 +55,7 @@ export function DomiciliariosPanel() {
     setForm({
       nombre: d.nombre, tel: d.tel ?? '',
       pagoBase: d.pagoBase ? String(d.pagoBase) : '',
-      activo: d.activo, usuario: d.usuario ?? '', password: d.password ?? '',
+      activo: d.activo, usuario: d.usuario ?? '', password: '',
     });
     setShowPass(false); setIsOpen(true);
   }
@@ -64,45 +68,22 @@ export function DomiciliariosPanel() {
     try {
       const pagoBase = parseFloat(form.pagoBase) || 0;
       const tel = form.tel.trim();
-      const existingUid = domiciliarios[editId!]?.uid;
-      const data: Omit<Domiciliario, 'id'> = {
-        nombre: form.nombre.trim(),
-        tel,
-        pagoBase,
-        activo: form.activo,
-        usuario: form.usuario.trim() || (domiciliarios[editId!]?.usuario ?? ''),
-        password: form.password || (domiciliarios[editId!]?.password ?? ''),
-        ...(existingUid ? { uid: existingUid } : {}),
-      };
 
       if (editId) {
-        const existing = domiciliarios[editId];
-        // If password changed, update Firebase Auth via secondary app
-        if (form.password && form.password !== existing?.password && form.password.length >= 6) {
-          try {
-            const secAuth = getSecondaryAuth();
-            await signInWithEmailAndPassword(secAuth, `${existing.usuario}${DOM_EMAIL_DOMAIN}`, existing.password!);
-            await updatePassword(secAuth.currentUser!, form.password);
-            await signOut(secAuth);
-          } catch {
-            showToast('Contraseña en la app actualizada, pero falló en Auth. Recrea el domiciliario si es necesario.', 'error');
-          }
-        }
-        await updateDoc(doc(db, 'domiciliarios', editId), data);
-        setDomiciliarios({ ...domiciliarios, [editId]: { id: editId, ...data } });
+        const data: Partial<Omit<Domiciliario, 'id'>> = {
+          nombre: form.nombre.trim(), tel, pagoBase, activo: form.activo,
+        };
+        await updateDomiciliario(editId, data);
+        setDomiciliarios({ ...domiciliarios, [editId]: { ...domiciliarios[editId], ...data } });
         showToast('Domiciliario actualizado', 'success');
       } else {
-        // Create Firebase Auth user via secondary app
+        // Cuenta de Auth vía cliente desechable, para no pisar la sesión del admin
         const email = `${form.usuario.trim()}${DOM_EMAIL_DOMAIN}`;
-        let uid = '';
-        try {
-          const secAuth = getSecondaryAuth();
-          const cred = await createUserWithEmailAndPassword(secAuth, email, form.password);
-          uid = cred.user.uid;
-          await signOut(secAuth);
-        } catch (e: unknown) {
-          const code = (e as { code?: string }).code ?? '';
-          if (code === 'auth/email-already-in-use') {
+        const throwaway = getThrowawayClient();
+        const { data: signUpData, error: signUpError } = await throwaway.auth.signUp({ email, password: form.password });
+        await throwaway.auth.signOut();
+        if (signUpError || !signUpData.user) {
+          if (signUpError?.code === 'user_already_exists') {
             showToast('Ese usuario ya existe. Elige otro nombre de usuario.', 'error');
           } else {
             showToast('Error al crear cuenta de acceso. Verifica el usuario.', 'error');
@@ -110,10 +91,14 @@ export function DomiciliariosPanel() {
           setSaving(false);
           return;
         }
-        const r = await addDoc(collection(db, 'domiciliarios'), { ...data, uid });
-        // Create users/{uid} record for Firestore role-based rules
-        await setDoc(doc(db, 'users', uid), { role: 'domiciliario', domiciliarioId: r.id });
-        setDomiciliarios({ ...domiciliarios, [r.id]: { id: r.id, ...data, uid } });
+        const uid = signUpData.user.id;
+        const data: Omit<Domiciliario, 'id'> = {
+          nombre: form.nombre.trim(), tel, pagoBase, activo: form.activo,
+          usuario: form.usuario.trim(), uid,
+        };
+        const newId = await createDomiciliario(data);
+        await createProfile({ id: uid, role: 'domiciliario', domiciliarioId: newId });
+        setDomiciliarios({ ...domiciliarios, [newId]: { id: newId, ...data } });
         showToast('Domiciliario creado', 'success');
       }
       setIsOpen(false);
@@ -128,7 +113,7 @@ export function DomiciliariosPanel() {
   async function handleDelete(id: string) {
     const ok = await confirm({ title: 'Eliminar domiciliario', message: '¿Eliminar este domiciliario del registro?', danger: true, confirmLabel: 'Eliminar' });
     if (!ok) return;
-    await deleteDoc(doc(db, 'domiciliarios', id));
+    await deleteDomiciliario(id);
     const next = { ...domiciliarios };
     delete next[id];
     setDomiciliarios(next);
@@ -251,25 +236,32 @@ export function DomiciliariosPanel() {
                 <span style={{ fontSize: 11, color: 'var(--text3)', marginTop: 3 }}>El usuario no se puede cambiar después de creado</span>
               )}
             </div>
-            <div className="f-field">
-              <label style={{ display: 'flex', alignItems: 'center', gap: 5 }}><Lock size={12} /> Contraseña {editId ? '(dejar vacío para no cambiar)' : '*'}</label>
-              <div style={{ position: 'relative' }}>
-                <input
-                  type={showPass ? 'text' : 'password'}
-                  value={form.password}
-                  onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-                  placeholder={editId ? '••••••••' : 'Mínimo 6 caracteres'}
-                  style={{ paddingRight: 40 }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPass(v => !v)}
-                  style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)' }}
-                >
-                  {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
-                </button>
+            {editId ? (
+              <div style={{ fontSize: 12, color: 'var(--text3)', background: 'var(--bg2)', borderRadius: 8, padding: '8px 10px' }}>
+                Para restablecer la contraseña de acceso, usa{' '}
+                <code>node scripts/reset-domiciliario-password.mjs {form.usuario}</code> desde la terminal.
               </div>
-            </div>
+            ) : (
+              <div className="f-field">
+                <label style={{ display: 'flex', alignItems: 'center', gap: 5 }}><Lock size={12} /> Contraseña *</label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type={showPass ? 'text' : 'password'}
+                    value={form.password}
+                    onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+                    placeholder="Mínimo 6 caracteres"
+                    style={{ paddingRight: 40 }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPass(v => !v)}
+                    style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)' }}
+                  >
+                    {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           <Toggle value={form.activo} onChange={v => setForm(f => ({ ...f, activo: v }))} label="Activo" />

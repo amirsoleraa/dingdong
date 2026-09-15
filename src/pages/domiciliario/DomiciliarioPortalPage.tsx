@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
 import { Bike, Bell, LogOut, Route, History, Wallet, X } from 'lucide-react';
-import { collection, onSnapshot, updateDoc, doc, query, orderBy } from 'firebase/firestore';
-import { domDb as db } from '@/lib/firebase';
+import { domSupabase } from '@/lib/supabase';
+import { subscribeToPedidos } from '@/lib/data/pedidos';
+import { subscribeToNotificaciones, markNotificacionLeida } from '@/lib/data/notificaciones';
 import { useDomAuth } from '@/hooks/useDomAuth';
 import { useFirebaseInit } from '@/hooks/useFirebaseInit';
 import { useAdminStore } from '@/stores/useAdminStore';
@@ -12,7 +13,7 @@ import { DomCarteraPanel }   from '@/components/domiciliario/DomCarteraPanel';
 import { Toast } from '@/components/ui/Toast';
 import { ConfirmProvider } from '@/components/ui/ConfirmDialog';
 import { useAppStore } from '@/stores/useAppStore';
-import type { Notificacion, Pedido } from '@/types';
+import type { Notificacion } from '@/types';
 
 type Tab = 'rutas' | 'historial' | 'cartera';
 
@@ -27,18 +28,15 @@ function PortalContent() {
   const { cfg } = useAppStore();
   const { setPedidos } = useAdminStore();
 
-  // Subscribe to pedidos in camino (accessible by domiciliarios per Firestore rules)
+  // Subscribe to pedidos en camino (accesible por domiciliarios vía RLS)
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'pedidos'), snap => {
-      snap.docChanges().forEach(change => {
-        const data = { id: change.doc.id, ...change.doc.data() };
-        if (change.type === 'added' || change.type === 'modified') {
-          setPedidos(prev => ({ ...prev, [data.id]: data as Pedido }));
-        } else if (change.type === 'removed') {
-          setPedidos(prev => { const n = { ...prev }; delete n[data.id]; return n; });
-        }
-      });
-    }, () => {});
+    const unsub = subscribeToPedidos((event, row, oldId) => {
+      if ((event === 'INSERT' || event === 'UPDATE') && row) {
+        setPedidos(prev => ({ ...prev, [row.id]: row }));
+      } else if (event === 'DELETE' && oldId) {
+        setPedidos(prev => { const n = { ...prev }; delete n[oldId]; return n; });
+      }
+    }, domSupabase);
     return unsub;
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const { session, logOut } = useDomAuth();
@@ -50,15 +48,7 @@ function PortalContent() {
 
   useEffect(() => {
     if (!dom?.id) return;
-    const unsub = onSnapshot(
-      query(collection(db, 'notificaciones', dom.id, 'items'), orderBy('createdAt', 'desc')),
-      snap => {
-        const list: Notificacion[] = [];
-        snap.forEach(d => list.push({ id: d.id, ...d.data() } as Notificacion));
-        setNotifs(list);
-      },
-      () => {}
-    );
+    const unsub = subscribeToNotificaciones(dom.id, setNotifs, domSupabase);
     return unsub;
   }, [dom?.id]);
 
@@ -67,9 +57,7 @@ function PortalContent() {
   async function markAllRead() {
     if (!dom?.id) return;
     await Promise.all(
-      notifs.filter(n => !n.leida).map(n =>
-        updateDoc(doc(db, 'notificaciones', dom.id, 'items', n.id), { leida: true }).catch(() => {})
-      )
+      notifs.filter(n => !n.leida).map(n => markNotificacionLeida(n.id, domSupabase).catch(() => {}))
     );
   }
 
@@ -184,7 +172,7 @@ function PortalContent() {
                     <div style={{ fontSize: 13, fontWeight: n.leida ? 400 : 600 }}>{n.mensaje}</div>
                     {n.createdAt && (
                       <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }}>
-                        {new Date(n.createdAt.seconds * 1000).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' })}
+                        {new Date(n.createdAt).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' })}
                       </div>
                     )}
                   </div>

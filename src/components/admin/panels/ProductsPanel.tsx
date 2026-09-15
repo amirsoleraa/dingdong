@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Plus, Pencil, Trash2, Eye, EyeOff } from 'lucide-react';
-import { collection, addDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { createProducto, updateProducto, deleteProducto } from '@/lib/data/productos';
 import { uploadImage } from '@/lib/cloudinary';
 import { useAppStore } from '@/stores/useAppStore';
 import { useAdminStore } from '@/stores/useAdminStore';
@@ -116,12 +115,12 @@ export function ProductsPanel() {
       };
 
       if (editId) {
-        await updateDoc(doc(db, 'productos', editId), data);
+        await updateProducto(editId, data);
         setProductos({ ...productos, [editId]: { id: editId, ...data } });
         showToast('Producto actualizado', 'success');
       } else {
-        const ref2 = await addDoc(collection(db, 'productos'), data);
-        setProductos({ ...productos, [ref2.id]: { id: ref2.id, ...data } });
+        const newId = await createProducto(data);
+        setProductos({ ...productos, [newId]: { id: newId, ...data } });
         showToast('Producto creado', 'success');
       }
       setIsOpen(false);
@@ -136,7 +135,7 @@ export function ProductsPanel() {
   async function handleDelete(id: string) {
     const ok = await confirm({ title: 'Eliminar producto', message: '¿Eliminar este producto?', danger: true, confirmLabel: 'Eliminar' });
     if (!ok) return;
-    await deleteDoc(doc(db, 'productos', id));
+    await deleteProducto(id);
     const next = { ...productos };
     delete next[id];
     setProductos(next);
@@ -144,7 +143,7 @@ export function ProductsPanel() {
   }
 
   async function toggleActivo(p: Producto) {
-    await updateDoc(doc(db, 'productos', p.id), { activo: !p.activo });
+    await updateProducto(p.id, { activo: !p.activo });
     setProductos({ ...productos, [p.id]: { ...p, activo: !p.activo } });
   }
 

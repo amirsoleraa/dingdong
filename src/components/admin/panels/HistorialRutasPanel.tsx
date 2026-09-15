@@ -1,24 +1,24 @@
 import { useState, useEffect, useMemo } from 'react';
-import { onSnapshot, collection, query, where, deleteDoc, doc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { supabase } from '@/lib/supabase';
+import { listRutasCompletadas, deleteRuta } from '@/lib/data/rutas';
 import { useAppStore } from '@/stores/useAppStore';
 import { useAdminStore } from '@/stores/useAdminStore';
 import { useConfirm } from '@/components/ui/ConfirmDialog';
-import { fmtPrice } from '@/lib/utils';
+import { fmtPrice, tsMs } from '@/lib/utils';
 import { User, Package, ChevronDown, ChevronUp, CheckCircle, Trash2, X, Calendar, Bike } from 'lucide-react';
 import type { RutaEntrega, Pedido } from '@/types';
 
-function fmtFecha(ts?: { seconds: number }): string {
+function fmtFecha(ts?: string): string {
   if (!ts) return '';
-  return new Date(ts.seconds * 1000).toLocaleDateString('es-CO', {
+  return new Date(ts).toLocaleDateString('es-CO', {
     day: 'numeric', month: 'short', year: 'numeric',
     hour: '2-digit', minute: '2-digit',
   });
 }
 
-function fechaISO(ts?: { seconds: number }): string {
+function fechaISO(ts?: string): string {
   if (!ts) return '0000-00-00';
-  return new Date(ts.seconds * 1000).toISOString().slice(0, 10);
+  return new Date(ts).toISOString().slice(0, 10);
 }
 
 export function HistorialRutasPanel() {
@@ -39,21 +39,23 @@ export function HistorialRutasPanel() {
   const [dateTo,   setDateTo]   = useState('');
 
   useEffect(() => {
-    const q = query(collection(db, 'rutas'), where('estado', '==', 'completada'));
-    const unsub = onSnapshot(q, snap => {
-      const list: RutaEntrega[] = [];
-      snap.forEach(d => list.push({ id: d.id, ...d.data() } as RutaEntrega));
-      list.sort((a, b) =>
-        (b.completadaEn?.seconds ?? b.createdAt?.seconds ?? 0) -
-        (a.completadaEn?.seconds ?? a.createdAt?.seconds ?? 0)
-      );
-      setRutas(list);
-      setLoading(false);
-    }, () => {
-      showToast('Error al cargar historial de rutas', 'error');
-      setLoading(false);
-    });
-    return unsub;
+    async function load() {
+      try {
+        const list = await listRutasCompletadas();
+        list.sort((a, b) => tsMs(b.completadaEn ?? b.createdAt) - tsMs(a.completadaEn ?? a.createdAt));
+        setRutas(list);
+      } catch {
+        showToast('Error al cargar historial de rutas', 'error');
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+    const channel = supabase
+      .channel('historial-rutas-admin-' + Math.random().toString(36).slice(2))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rutas' }, load)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const filtered = useMemo(() => {
@@ -77,7 +79,7 @@ export function HistorialRutasPanel() {
         map[key].rutas.push(r);
         return;
       }
-      const d = new Date(ts.seconds * 1000);
+      const d = new Date(ts);
       const key = d.toISOString().slice(0, 10);
       if (!map[key]) {
         map[key] = {
@@ -146,7 +148,7 @@ export function HistorialRutasPanel() {
     }
     setDeleting(true);
     try {
-      await deleteDoc(doc(db, 'rutas', rutaId));
+      await deleteRuta(rutaId);
       setDeletingId(null);
       showToast('Ruta eliminada del historial', 'success');
     } catch {

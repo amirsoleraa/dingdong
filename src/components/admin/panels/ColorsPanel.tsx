@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Save, RotateCcw } from 'lucide-react';
-import { setDoc, doc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { saveConfigColores } from '@/lib/data/config';
 import { useAppStore } from '@/stores/useAppStore';
 import { applyThemeColors, COLOR_PRESETS } from '@/lib/utils';
 
@@ -48,7 +47,7 @@ export function ColorsPanel() {
   async function handleSave() {
     setSaving(true);
     try {
-      await setDoc(doc(db, 'config', 'colores'), colors);
+      await saveConfigColores(colors);
       localStorage.setItem('theme-colors', JSON.stringify(colors));
       showToast('Colores guardados');
     } catch (e) {

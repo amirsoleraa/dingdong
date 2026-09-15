@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { Plus, Pencil, Trash2, Tag, Gift, Bike, Ticket } from 'lucide-react';
-import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, serverTimestamp } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { supabase } from '@/lib/supabase';
+import { listPromociones, createPromocion, updatePromocion, deletePromocion } from '@/lib/data/promociones';
 import { useAppStore } from '@/stores/useAppStore';
 import { Modal } from '@/components/ui/Modal';
 import { Toggle } from '@/components/ui/Toggle';
 import { useConfirm } from '@/components/ui/ConfirmDialog';
+import { tsMs } from '@/lib/utils';
 import type { Promocion, TipoPromo } from '@/types';
 
 const TIPO_LABELS: Record<TipoPromo, string> = {
@@ -67,14 +68,21 @@ export function PromocionesPanel() {
   }
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'promociones'), snap => {
-      const list: Promocion[] = [];
-      snap.forEach(d => list.push({ id: d.id, ...d.data() } as Promocion));
-      list.sort((a, b) => (b.createdAt?.seconds ?? 0) - (a.createdAt?.seconds ?? 0));
-      setPromos(list);
-      setLoading(false);
-    }, () => setLoading(false));
-    return unsub;
+    async function load() {
+      try {
+        const list = await listPromociones();
+        list.sort((a, b) => tsMs(b.createdAt) - tsMs(a.createdAt));
+        setPromos(list);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+    const channel = supabase
+      .channel('promociones-admin-' + Math.random().toString(36).slice(2))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'promociones' }, load)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, []);
 
   function openCreate() {
@@ -125,10 +133,10 @@ export function PromocionesPanel() {
         descripcion: buildPreview(),
       };
       if (editId) {
-        await updateDoc(doc(db, 'promociones', editId), payload);
+        await updatePromocion(editId, payload);
         showToast('Promoción actualizada', 'success');
       } else {
-        await addDoc(collection(db, 'promociones'), { ...payload, createdAt: serverTimestamp() });
+        await createPromocion(payload);
         showToast('Promoción creada', 'success');
       }
       setIsOpen(false);
@@ -142,12 +150,12 @@ export function PromocionesPanel() {
   async function handleDelete(id: string) {
     const ok = await confirm({ title: 'Eliminar promoción', message: '¿Eliminar esta promoción?', danger: true, confirmLabel: 'Eliminar' });
     if (!ok) return;
-    await deleteDoc(doc(db, 'promociones', id));
+    await deletePromocion(id);
     showToast('Promoción eliminada');
   }
 
   async function handleToggle(p: Promocion) {
-    await updateDoc(doc(db, 'promociones', p.id), { activa: !p.activa });
+    await updatePromocion(p.id, { activa: !p.activa });
   }
 
   const Icon = form.tipo ? TIPO_ICONS[form.tipo] : Tag;

@@ -1,8 +1,7 @@
 import { useMemo, useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
 import { Package, DollarSign, TrendingUp, Bike, MapPin, Calendar, X } from 'lucide-react';
-import { collection, query, orderBy, getDocs } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { listHistorialPedidos } from '@/lib/data/historial';
 import { useAdminStore } from '@/stores/useAdminStore';
 import { fmtPrice } from '@/lib/utils';
 import type { HistorialDia, Pedido } from '@/types';
@@ -35,12 +34,8 @@ export function DashboardPanel() {
 
   // Load historial once for longer period analysis
   useEffect(() => {
-    getDocs(query(collection(db, 'historial_pedidos'), orderBy('creadoEn', 'desc')))
-      .then(snap => {
-        const list: HistorialDia[] = [];
-        snap.forEach(d => list.push({ id: d.id, ...d.data() } as HistorialDia));
-        setHistorial(list);
-      })
+    listHistorialPedidos()
+      .then(setHistorial)
       .catch(() => {})
       .finally(() => setLoadingHist(false));
   }, []);
@@ -64,13 +59,13 @@ export function DashboardPanel() {
     const fromHist: Pedido[] = [];
     historial.forEach(dia => {
       if (dia.creadoEn) {
-        const d = new Date(dia.creadoEn.seconds * 1000);
+        const d = new Date(dia.creadoEn);
         if (d >= start && (!end || d <= end)) fromHist.push(...(dia.pedidos ?? []));
       }
     });
     const activeInPeriod = allActive.filter(p => {
       if (!p.createdAt) return false;
-      const d = new Date(p.createdAt.seconds * 1000);
+      const d = new Date(p.createdAt);
       return d >= start && (!end || d <= end);
     });
     return [...fromHist, ...activeInPeriod];
@@ -94,10 +89,10 @@ export function DashboardPanel() {
       const next = new Date(d); next.setDate(next.getDate() + 1);
 
       const dPedidos = [
-        ...allActive.filter(p => p.createdAt && new Date(p.createdAt.seconds * 1000) >= d && new Date(p.createdAt.seconds * 1000) < next),
+        ...allActive.filter(p => p.createdAt && new Date(p.createdAt) >= d && new Date(p.createdAt) < next),
         ...historial.flatMap(dia => {
           if (!dia.creadoEn) return [];
-          const dDate = new Date(dia.creadoEn.seconds * 1000);
+          const dDate = new Date(dia.creadoEn);
           return dDate >= d && dDate < next ? dia.pedidos ?? [] : [];
         }),
       ];

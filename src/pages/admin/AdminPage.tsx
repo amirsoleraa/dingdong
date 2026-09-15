@@ -1,9 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Outlet, Navigate } from 'react-router-dom';
-import { doc, getDoc } from 'firebase/firestore';
 import { useAdminInit } from '@/hooks/useAdminInit';
 import { useAuth } from '@/hooks/useAuth';
-import { db } from '@/lib/firebase';
+import { getProfile } from '@/lib/data/profiles';
 import { AdminSidebar } from '@/components/admin/AdminSidebar';
 import { AdminTopbar } from '@/components/admin/AdminTopbar';
 import { Toast } from '@/components/ui/Toast';
@@ -42,10 +41,10 @@ function AdminGuard() {
 
   useEffect(() => {
     if (!user) { setIsAdmin(null); return; }
-    getDoc(doc(db, 'users', user.uid))
-      .then(snap => setIsAdmin(snap.data()?.role === 'admin' ? true : false))
+    getProfile(user.id)
+      .then(profile => setIsAdmin(profile?.role === 'admin'))
       .catch(() => setIsAdmin(false));
-  }, [user?.uid]);
+  }, [user?.id]);
 
   if (loading) return null;
   if (!user) return <Navigate to="/admin/login" replace />;

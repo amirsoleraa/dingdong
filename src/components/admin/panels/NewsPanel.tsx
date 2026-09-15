@@ -1,11 +1,12 @@
 import { useState, useRef } from 'react';
 import { Plus, Trash2, Image, Upload, Bell } from 'lucide-react';
-import { collection, addDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
-import { db, firebaseReady } from '@/lib/firebase';
+import { supabaseReady } from '@/lib/supabase';
+import { createNovedad, deleteNovedad } from '@/lib/data/novedades';
 import { uploadImage } from '@/lib/cloudinary';
 import { useAppStore } from '@/stores/useAppStore';
 import { Modal } from '@/components/ui/Modal';
 import { useConfirm } from '@/components/ui/ConfirmDialog';
+import { tsMs } from '@/lib/utils';
 import type { Novedad } from '@/types';
 
 export function NewsPanel() {
@@ -21,7 +22,7 @@ export function NewsPanel() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const sorted = Object.values(novedades)
-    .sort((a, b) => (b.createdAt?.seconds ?? 0) - (a.createdAt?.seconds ?? 0));
+    .sort((a, b) => tsMs(b.createdAt) - tsMs(a.createdAt));
 
   function handleImgChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -37,7 +38,7 @@ export function NewsPanel() {
 
   async function handleSave() {
     if (!titulo.trim()) { showToast('El título es obligatorio', 'error'); return; }
-    if (!firebaseReady)  { showToast('Firebase no configurado', 'error'); return; }
+    if (!supabaseReady)  { showToast('Supabase no configurado', 'error'); return; }
     setSaving(true);
     try {
       let imgUrl = '';
@@ -45,17 +46,9 @@ export function NewsPanel() {
         imgUrl = await uploadImage(imgFile, 'novedades');
       }
 
-      const payload = {
-        titulo: titulo.trim(),
-        descripcion: desc.trim(),
-        imgUrl,
-        activa: true,
-        createdAt: serverTimestamp(),
-      };
-
-      const docRef = await addDoc(collection(db, 'novedades'), payload);
-      const novedad: Novedad = { id: docRef.id, titulo: titulo.trim(), descripcion: desc.trim(), imgUrl, activa: true };
-      setNovedades({ ...novedades, [docRef.id]: novedad });
+      const id = await createNovedad({ titulo: titulo.trim(), descripcion: desc.trim(), imgUrl, activa: true });
+      const novedad: Novedad = { id, titulo: titulo.trim(), descripcion: desc.trim(), imgUrl, activa: true };
+      setNovedades({ ...novedades, [id]: novedad });
       showToast('Novedad publicada', 'success');
       setIsOpen(false);
       resetForm();
@@ -69,8 +62,8 @@ export function NewsPanel() {
   async function handleDelete(id: string) {
     const ok = await confirm({ title: 'Eliminar novedad', message: '¿Eliminar esta novedad?', danger: true, confirmLabel: 'Eliminar' });
     if (!ok) return;
-    if (!firebaseReady) return;
-    await deleteDoc(doc(db, 'novedades', id));
+    if (!supabaseReady) return;
+    await deleteNovedad(id);
     const next = { ...novedades };
     delete next[id];
     setNovedades(next);

@@ -13,6 +13,7 @@
   "dependencies": {
     "@emailjs/browser": "^4.4.1",
     "@sentry/react": "^10.66.0",
+    "@supabase/supabase-js": "^2.116.0",
     "firebase": "^10.12.0",
     "lucide-react": "^0.378.0",
     "react": "^18.3.1",
@@ -30,6 +31,7 @@
     "eslint": "^10.7.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.3",
+    "firebase-admin": "^14.4.0",
     "globals": "^17.7.0",
     "jsdom": "^29.1.1",
     "typescript": "^5.4.5",

@@ -2,8 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, MapPin, Ticket, CheckCircle, MessageCircle, User, ChevronDown } from 'lucide-react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
-import { collection, addDoc, setDoc, doc, getDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { createPedido } from '@/lib/data/pedidos';
+import { getCuponByCodigo, createCuponDePromo } from '@/lib/data/cupones';
 import { useCartStore } from '@/stores/useCartStore';
 import { useAppStore } from '@/stores/useAppStore';
 import { useClienteAuth } from '@/hooks/useClienteAuth';
@@ -13,7 +13,7 @@ import { OrderConfirmationModal } from '@/components/client/OrderConfirmationMod
 import { sendOrderConfirmation } from '@/lib/email';
 import { fmtPrice, generarNumeroPedido, isValidEmail, isValidPhone } from '@/lib/utils';
 import { evaluatePromos } from '@/lib/promos';
-import type { DatosEnvio, Pedido, Cupon } from '@/types';
+import type { DatosEnvio, Pedido } from '@/types';
 import styles from './ResumenPage.module.css';
 
 interface DatosForm {
@@ -111,11 +111,10 @@ export function ResumenPage() {
     const code = cuponCode.trim().toUpperCase();
     if (!code) return;
     try {
-      const snap = await getDoc(doc(db, 'cupones', code));
-      if (!snap.exists() || snap.data().activo === false) {
+      const cup = await getCuponByCodigo(code);
+      if (!cup || cup.activo === false) {
         setCuponMsg('Cupón inválido o expirado'); setCuponOk(false); setCuponAplicado(null); return;
       }
-      const cup = { id: snap.id, ...snap.data() } as Cupon;
       if (cup.limite > 0 && cup.usos >= cup.limite) {
         setCuponMsg('Cupón agotado'); setCuponOk(false); setCuponAplicado(null); return;
       }
@@ -183,11 +182,11 @@ export function ResumenPage() {
     setSending(true);
     const numero = generarNumeroPedido();
     const items  = cart.map(i => ({ id: i.id, nombre: i.name, precio: i.price, qty: i.qty, extras: i.extras }));
-    const pedido: Omit<Pedido, 'id'> = {
+    const pedido: Omit<Pedido, 'id' | 'createdAt' | 'verificacion'> = {
       numero,
       estado: 'activos',
       cliente: datosEnvio!,
-      clienteUid: user?.uid ?? null,
+      clienteUid: user?.id ?? null,
       items,
       subtotal,
       domicilio,
@@ -196,39 +195,31 @@ export function ResumenPage() {
       cupon: cuponAplicado ? cuponAplicado.codigo : null,
       mensajeConfirmacion: cfg.mensajeConfirmacion || '',
       location: locationData ?? null,
-      createdAt: serverTimestamp() as unknown as Pedido['createdAt'],
       ...(promoResult.promosAplicadas.length > 0 && { promosAplicadas: promoResult.promosAplicadas }),
     };
 
     try {
-      const ref       = await addDoc(collection(db, 'pedidos'), pedido);
-      const fullPedido = { ...pedido, id: ref.id };
+      const fullPedido = await createPedido(pedido);
 
-      // El incremento de `usos` del cupón lo hace la Cloud Function onNuevoPedido
-      // de forma atómica — hacerlo también aquí duplicaba el conteo en cada pedido.
+      // El incremento de `usos` del cupón lo hace el trigger de Postgres
+      // on_nuevo_pedido de forma atómica — hacerlo también aquí duplicaba el conteo.
 
       for (const code of promoResult.cuponesGenerados) {
         const promoApl = promoResult.promosAplicadas.find(pa => pa.cuponGenerado === code);
         if (!promoApl) continue;
-        setDoc(doc(db, 'cupones', code), {
+        createCuponDePromo({
           codigo: code,
-          tipo: 'porcentaje',
-          valor: promoApl.cuponPct ?? 10,
-          activo: true,
-          usos: 0,
-          limite: 1,
+          valorPct: promoApl.cuponPct ?? 10,
           clienteNombre: datosEnvio!.nombre,
           clienteTel: datosEnvio!.tel ?? '',
           pedidoNumero: numero,
           promoNombre: promoApl.nombre,
           promoId: promoApl.promoId,
-          origen: 'promo',
-          createdAt: serverTimestamp(),
         }).catch(() => {});
       }
 
-      setLastPedido(fullPedido as Pedido);
-      sendOrderConfirmation(fullPedido as Pedido, cfg.nombreComercio).catch(() => {});
+      setLastPedido(fullPedido);
+      sendOrderConfirmation(fullPedido, cfg.nombreComercio).catch(() => {});
 
       if (openWA) {
         const url = buildWhatsappUrl(numero, items);
@@ -237,7 +228,7 @@ export function ResumenPage() {
 
       clearCart();
       setConfirmOpen(false);
-      setSuccessPedido(fullPedido as Pedido);
+      setSuccessPedido(fullPedido);
     } catch (e) {
       showToast('Error al enviar el pedido. Intenta de nuevo.');
       console.error(e);

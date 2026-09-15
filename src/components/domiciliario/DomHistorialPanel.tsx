@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
-import { collection, query, getDocs, where } from 'firebase/firestore';
-import { domDb as db } from '@/lib/firebase';
+import { domSupabase } from '@/lib/supabase';
+import { listHistorialPedidosSince, listHistorialRutasByDomiciliario } from '@/lib/data/historial';
 import { Calendar, X } from 'lucide-react';
 import { fmtPrice } from '@/lib/utils';
 import type { Pedido, Domiciliario } from '@/types';
@@ -31,12 +31,9 @@ export function DomHistorialPanel({ domiciliario }: DomHistorialPanelProps) {
         const cutoffFecha = cutoff.toISOString().slice(0, 10);
 
         // Fetch from historial_pedidos (admin close-day entries)
-        const [hSnap, rSnap] = await Promise.all([
-          getDocs(query(collection(db, 'historial_pedidos'), where('fecha', '>=', cutoffFecha))),
-          getDocs(query(
-            collection(db, 'historial_rutas'),
-            where('domiciliarioId', '==', domiciliario.id),
-          )),
+        const [hDias, rRutas] = await Promise.all([
+          listHistorialPedidosSince(cutoffFecha, domSupabase),
+          listHistorialRutasByDomiciliario(domiciliario.id, domSupabase),
         ]);
 
         // Build a map: fecha -> pedidos[]
@@ -48,8 +45,7 @@ export function DomHistorialPanel({ domiciliario }: DomHistorialPanelProps) {
         }
 
         // historial_pedidos: filter to this domiciliario
-        hSnap.forEach(d => {
-          const data = d.data();
+        hDias.forEach(data => {
           const mine: Pedido[] = (data.pedidos ?? []).filter(
             (p: Pedido) => p.domiciliarioId === domiciliario.id || p.repartidorNombre === domiciliario.nombre
           );
@@ -57,9 +53,8 @@ export function DomHistorialPanel({ domiciliario }: DomHistorialPanelProps) {
         });
 
         // historial_rutas: all pedidos belong to this domiciliario
-        rSnap.forEach(d => {
-          const data = d.data();
-          if ((data.pedidos ?? []).length > 0) addPedidos(data.fecha, data.fechaLabel, data.pedidos);
+        rRutas.forEach(data => {
+          if ((data.pedidosSnapshot ?? []).length > 0) addPedidos(data.fecha, data.fechaLabel, data.pedidosSnapshot!);
         });
 
         // Deduplicate pedidos by id (a pedido can appear in both if admin also closed day)
@@ -83,7 +78,7 @@ export function DomHistorialPanel({ domiciliario }: DomHistorialPanelProps) {
       }
     }
     load();
-  }, [domiciliario]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [domiciliario]);
 
   const filtered = useMemo(() => {
     return dias.filter(dia => {

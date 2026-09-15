@@ -3,6 +3,14 @@
 .env.local
 .env.*.local
 
+# Exportación de datos reales de Firestore (contiene PII de clientes) y
+# credenciales de service account — nunca deben subirse al repo
+migrate-export/
+*firebase-adminsdk*.json
+
+# Config local de Claude Code (puede contener comandos con credenciales en texto plano)
+.claude/
+
 # Dependencias
 node_modules/
 

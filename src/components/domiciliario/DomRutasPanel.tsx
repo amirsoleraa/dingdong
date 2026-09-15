@@ -4,16 +4,16 @@ import {
   Plus, Trash2, ArrowUp, ArrowDown, XCircle, RotateCcw,
   ExternalLink, Package, AlertTriangle,
 } from 'lucide-react';
-import {
-  collection, onSnapshot, getDoc, addDoc, updateDoc, deleteDoc,
-  doc, serverTimestamp, query, where, setDoc,
-} from 'firebase/firestore';
-import { domDb as db } from '@/lib/firebase';
+import { domSupabase } from '@/lib/supabase';
+import { subscribeToRutas, createRuta, updateRuta, deleteRuta } from '@/lib/data/rutas';
+import { updatePedido, listPedidosByIds } from '@/lib/data/pedidos';
+import { createNotificacion } from '@/lib/data/notificaciones';
+import { createHistorialRuta } from '@/lib/data/historial';
 import { useAppStore } from '@/stores/useAppStore';
 import { useAdminStore } from '@/stores/useAdminStore';
 import { Modal } from '@/components/ui/Modal';
 import { useConfirm } from '@/components/ui/ConfirmDialog';
-import { fmtPrice } from '@/lib/utils';
+import { fmtPrice, tsMs } from '@/lib/utils';
 import type { RutaEntrega, Pedido, Domiciliario } from '@/types';
 
 function move<T>(arr: T[], from: number, to: number): T[] {
@@ -47,27 +47,20 @@ export function DomRutasPanel({ domiciliario }: DomRutasPanelProps) {
 
   const enCamino = Object.values(pedidos)
     .filter(p => p.estado === 'camino' && (!p.domiciliarioId || p.domiciliarioId === domiciliario.id))
-    .sort((a, b) => (a.createdAt?.seconds ?? 0) - (b.createdAt?.seconds ?? 0));
+    .sort((a, b) => tsMs(a.createdAt) - tsMs(b.createdAt));
 
   const fetchedPedidoIds = useRef<Set<string>>(new Set());
 
   // Real-time subscription to active routes
   useEffect(() => {
     setLoading(true);
-    const q = query(
-      collection(db, 'rutas'),
-      where('estado', '==', 'activa'),
-      where('domiciliarioId', '==', domiciliario.id),
-    );
-    const unsub = onSnapshot(q, snap => {
-      const list: RutaEntrega[] = [];
-      snap.forEach(d => list.push({ id: d.id, ...d.data() } as RutaEntrega));
-      list.sort((a, b) => (b.createdAt?.seconds ?? 0) - (a.createdAt?.seconds ?? 0));
+    const unsub = subscribeToRutas({ domiciliarioId: domiciliario.id }, list => {
+      list.sort((a, b) => tsMs(b.createdAt) - tsMs(a.createdAt));
       setRutas(list);
       setLoading(false);
-    }, () => { showToast('Error al cargar rutas', 'error'); setLoading(false); });
+    }, domSupabase);
     return unsub;
-  }, [domiciliario.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [domiciliario.id]);
 
   // Fetch any pedidos not yet in the store when routes change
   useEffect(() => {
@@ -75,10 +68,8 @@ export function DomRutasPanel({ domiciliario }: DomRutasPanelProps) {
     const missingIds = allIds.filter(id => !pedidos[id] && !fetchedPedidoIds.current.has(id));
     if (missingIds.length === 0) return;
     missingIds.forEach(id => fetchedPedidoIds.current.add(id));
-    Promise.all(missingIds.map(id => getDoc(doc(db, 'pedidos', id))))
-      .then(snaps => {
-        const fetched: Record<string, Pedido> = {};
-        snaps.forEach(s => { if (s.exists()) fetched[s.id] = { id: s.id, ...s.data() } as Pedido; });
+    listPedidosByIds(missingIds, domSupabase)
+      .then(fetched => {
         if (Object.keys(fetched).length > 0) setPedidos(prev => ({ ...prev, ...fetched }));
       })
       .catch(() => {});
@@ -89,17 +80,15 @@ export function DomRutasPanel({ domiciliario }: DomRutasPanelProps) {
     if (!nombreRuta.trim())  { showToast('Escribe un nombre para la ruta', 'error'); return; }
     setCreatingRuta(true);
     try {
-      const payload = {
+      const nueva = await createRuta({
         nombre: nombreRuta.trim(),
         repartidor: domiciliario.nombre,
         domiciliarioId: domiciliario.id,
         pedidoIds: [...selected],
-        estado: 'activa' as const,
-        createdAt: serverTimestamp(),
-      };
-      const ref = await addDoc(collection(db, 'rutas'), payload);
-      setRutas(prev => [{ id: ref.id, ...payload, createdAt: undefined } as RutaEntrega, ...prev]);
-      setExpanded(prev => new Set([...prev, ref.id]));
+        estado: 'activa',
+      }, domSupabase);
+      setRutas(prev => [nueva, ...prev]);
+      setExpanded(prev => new Set([...prev, nueva.id]));
       setNombreRuta(''); setSelected(new Set());
       showToast('Ruta creada', 'success');
     } catch { showToast('Error al crear la ruta', 'error'); }
@@ -108,7 +97,7 @@ export function DomRutasPanel({ domiciliario }: DomRutasPanelProps) {
 
   async function handleReorder(rutaId: string, newOrder: string[]) {
     try {
-      await updateDoc(doc(db, 'rutas', rutaId), { pedidoIds: newOrder });
+      await updateRuta(rutaId, { pedidoIds: newOrder }, domSupabase);
       setRutas(prev => prev.map(r => r.id === rutaId ? { ...r, pedidoIds: newOrder } : r));
     } catch { showToast('Error al reordenar', 'error'); }
   }
@@ -117,12 +106,12 @@ export function DomRutasPanel({ domiciliario }: DomRutasPanelProps) {
     const ok = await confirm({ title: 'Confirmar entrega', message: '¿Confirmar que este pedido fue entregado?', confirmLabel: 'Sí, entregado' });
     if (!ok) return;
     const ruta = rutas.find(r => r.id === rutaId);
-    await updateDoc(doc(db, 'pedidos', pedidoId), {
+    await updatePedido(pedidoId, {
       estado: 'entregado',
       rutaNombre: ruta?.nombre ?? '',
       repartidorNombre: domiciliario.nombre,
       domiciliarioId: domiciliario.id,
-    });
+    }, domSupabase);
     showToast('Pedido marcado como entregado', 'success');
   }
 
@@ -132,8 +121,8 @@ export function DomRutasPanel({ domiciliario }: DomRutasPanelProps) {
     const ruta = rutas.find(r => r.id === rutaId)!;
     const newIds = ruta.pedidoIds.filter(id => id !== pedidoId);
     await Promise.all([
-      updateDoc(doc(db, 'pedidos', pedidoId), { estado: 'cancelado', rutaNombre: ruta.nombre, repartidorNombre: domiciliario.nombre }),
-      updateDoc(doc(db, 'rutas', rutaId), { pedidoIds: newIds }),
+      updatePedido(pedidoId, { estado: 'cancelado', rutaNombre: ruta.nombre, repartidorNombre: domiciliario.nombre }, domSupabase),
+      updateRuta(rutaId, { pedidoIds: newIds }, domSupabase),
     ]);
     setRutas(prev => prev.map(r => r.id === rutaId ? { ...r, pedidoIds: newIds } : r));
     showToast('Pedido cancelado', 'success');
@@ -144,7 +133,7 @@ export function DomRutasPanel({ domiciliario }: DomRutasPanelProps) {
     if (!ok) return;
     const ruta = rutas.find(r => r.id === rutaId)!;
     const newIds = ruta.pedidoIds.filter(id => id !== pedidoId);
-    await updateDoc(doc(db, 'rutas', rutaId), { pedidoIds: newIds });
+    await updateRuta(rutaId, { pedidoIds: newIds }, domSupabase);
     setRutas(prev => prev.map(r => r.id === rutaId ? { ...r, pedidoIds: newIds } : r));
     showToast('Pedido reprogramado', 'success');
   }
@@ -163,22 +152,20 @@ export function DomRutasPanel({ domiciliario }: DomRutasPanelProps) {
       // Remove from current route
       const ruta = rutas.find(r => r.id === reassignRutaId)!;
       const newIds = ruta.pedidoIds.filter(id => id !== reassignPedidoId);
-      await updateDoc(doc(db, 'rutas', reassignRutaId!), { pedidoIds: newIds });
+      await updateRuta(reassignRutaId!, { pedidoIds: newIds }, domSupabase);
       // Update pedido domiciliarioId
-      await updateDoc(doc(db, 'pedidos', reassignPedidoId!), {
+      await updatePedido(reassignPedidoId!, {
         domiciliarioId: reassignTargetId,
         repartidorNombre: targetDom.nombre,
         notaPendiente: reassignNovedad.trim(),
-      });
+      }, domSupabase);
       // Notify the target domiciliario
-      const notif = {
+      await createNotificacion({
+        domiciliarioId: reassignTargetId,
         tipo: 'reasignacion',
         mensaje: `${domiciliario.nombre} te reasignó un pedido. Novedad: "${reassignNovedad.trim()}"`,
-        leida: false,
-        pedidoId: reassignPedidoId,
-        createdAt: serverTimestamp(),
-      };
-      await setDoc(doc(collection(db, 'notificaciones', reassignTargetId, 'items')), notif);
+        pedidoId: reassignPedidoId!,
+      }, domSupabase);
       setRutas(prev => prev.map(r => r.id === reassignRutaId ? { ...r, pedidoIds: newIds } : r));
       setReassignPedidoId(null); setReassignRutaId(null);
       showToast('Pedido reasignado', 'success');
@@ -192,14 +179,14 @@ export function DomRutasPanel({ domiciliario }: DomRutasPanelProps) {
     try {
       const snapshot = ruta.pedidoIds.map(pid => pedidos[pid]).filter(Boolean);
       await Promise.all([
-        updateDoc(doc(db, 'rutas', ruta.id), { estado: 'completada', completadaEn: serverTimestamp(), pedidosSnapshot: snapshot }),
+        updateRuta(ruta.id, { estado: 'completada', completadaEn: new Date().toISOString(), pedidosSnapshot: snapshot }, domSupabase),
         ...ruta.pedidoIds.map(pid =>
-          updateDoc(doc(db, 'pedidos', pid), {
+          updatePedido(pid, {
             estado: 'entregado',
             rutaNombre: ruta.nombre,
             repartidorNombre: domiciliario.nombre,
             domiciliarioId: domiciliario.id,
-          }).catch(() => {})
+          }, domSupabase).catch(() => {})
         ),
       ]);
 
@@ -207,7 +194,7 @@ export function DomRutasPanel({ domiciliario }: DomRutasPanelProps) {
       const ahora = new Date();
       const fecha = ahora.toISOString().slice(0, 10);
       const fechaLabel = ahora.toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' });
-      await addDoc(collection(db, 'historial_rutas'), {
+      await createHistorialRuta({
         fecha, fechaLabel,
         rutaNombre: ruta.nombre,
         domiciliarioId: domiciliario.id,
@@ -219,8 +206,7 @@ export function DomRutasPanel({ domiciliario }: DomRutasPanelProps) {
           repartidorNombre: domiciliario.nombre,
           domiciliarioId: domiciliario.id,
         })),
-        creadoEn: serverTimestamp(),
-      });
+      }, domSupabase);
 
       setRutas(prev => prev.filter(r => r.id !== ruta.id));
       showToast('Ruta finalizada y guardada en historial', 'success');
@@ -232,7 +218,7 @@ export function DomRutasPanel({ domiciliario }: DomRutasPanelProps) {
     try {
       const ruta = rutas.find(r => r.id === addingToRuta)!;
       const newIds = [...new Set([...ruta.pedidoIds, ...addSelected])];
-      await updateDoc(doc(db, 'rutas', addingToRuta), { pedidoIds: newIds });
+      await updateRuta(addingToRuta, { pedidoIds: newIds }, domSupabase);
       setRutas(prev => prev.map(r => r.id === addingToRuta ? { ...r, pedidoIds: newIds } : r));
       setAddingToRuta(null);
       setAddSelected(new Set());
@@ -244,7 +230,7 @@ export function DomRutasPanel({ domiciliario }: DomRutasPanelProps) {
     const ok = await confirm({ title: 'Eliminar ruta', message: '¿Eliminar esta ruta?', danger: true, confirmLabel: 'Eliminar' });
     if (!ok) return;
     try {
-      await deleteDoc(doc(db, 'rutas', id));
+      await deleteRuta(id, domSupabase);
       setRutas(prev => prev.filter(r => r.id !== id));
       showToast('Ruta eliminada');
     } catch { showToast('Error al eliminar la ruta', 'error'); }

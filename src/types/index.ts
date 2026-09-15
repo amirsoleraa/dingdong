@@ -127,7 +127,7 @@ export interface Pedido {
   cupon: string | null;
   mensajeConfirmacion: string;
   location?: LocationData | null;
-  createdAt?: { seconds: number; nanoseconds: number };
+  createdAt?: string;
   rutaNombre?: string;
   repartidorNombre?: string;
   domiciliarioId?: string;
@@ -145,8 +145,8 @@ export interface RutaEntrega {
   domiciliarioId?: string;
   pedidoIds: string[];
   estado: 'activa' | 'completada';
-  createdAt?: { seconds: number; nanoseconds: number };
-  completadaEn?: { seconds: number; nanoseconds: number };
+  createdAt?: string;
+  completadaEn?: string;
   pedidosSnapshot?: Pedido[];
 }
 
@@ -176,7 +176,7 @@ export interface HistorialDia {
   totalEntregados: number;
   totalCancelados: number;
   totalRecaudo: number;
-  creadoEn?: { seconds: number; nanoseconds: number };
+  creadoEn?: string;
 }
 
 export interface Publicidad {
@@ -186,7 +186,7 @@ export interface Publicidad {
   imgUrl?: string;
   activa: boolean;
   orden: number;
-  createdAt?: { seconds: number; nanoseconds: number };
+  createdAt?: string;
 }
 
 export interface Cupon {
@@ -205,7 +205,7 @@ export interface Novedad {
   descripcion?: string;
   imgUrl?: string;
   activa?: boolean;
-  createdAt?: { seconds: number; nanoseconds: number };
+  createdAt?: string;
 }
 
 export interface ThemeColors {
@@ -226,7 +226,7 @@ export interface Notificacion {
   leida: boolean;
   rutaId?: string;
   pedidoId?: string;
-  createdAt?: { seconds: number; nanoseconds: number };
+  createdAt?: string;
 }
 
 export type TipoPromo = 'compra_lleva' | 'compra_descuento' | 'domicilio_descuento' | 'compra_cupon';
@@ -245,7 +245,7 @@ export interface Promocion {
   domicilioPct?: number;
   domicilioGratis?: boolean;
   cuponPct?: number;
-  createdAt?: { seconds: number; nanoseconds: number };
+  createdAt?: string;
 }
 
 export interface ClienteProfile {
@@ -254,14 +254,14 @@ export interface ClienteProfile {
   correo?: string;
   telefono?: string;
   favoritos: string[];
-  createdAt?: { seconds: number; nanoseconds: number };
+  createdAt?: string;
 }
 
 export interface PedidoVerificacion {
   ok: boolean;
   motivo?: string;
-  subtotalReal?: number;
-  verificadoEn?: { seconds: number; nanoseconds: number };
+  subtotal_real?: number;
+  verificado_en?: string;
 }
 
 export interface PromoAplicada {

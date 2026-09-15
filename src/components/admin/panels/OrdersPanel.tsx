@@ -1,14 +1,15 @@
 import { useState, useRef } from 'react';
 import { Eye, Trash2, ChevronRight, ChevronLeft, Clock, RotateCcw, Archive, ExternalLink, Plus, PenLine, AlertTriangle } from 'lucide-react';
-import { updateDoc, deleteDoc, doc, addDoc, collection, serverTimestamp, writeBatch, getDocs, query, where } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { updatePedido, deletePedido, deletePedidosBulk, createPedido } from '@/lib/data/pedidos';
+import { listRutasCompletadas } from '@/lib/data/rutas';
+import { createHistorialDia } from '@/lib/data/historial';
 import { useAdminStore } from '@/stores/useAdminStore';
 import { useAppStore } from '@/stores/useAppStore';
 import { Modal } from '@/components/ui/Modal';
 import { useConfirm } from '@/components/ui/ConfirmDialog';
-import { fmtPrice, ESTADO_INFO, generarNumeroPedido } from '@/lib/utils';
+import { fmtPrice, ESTADO_INFO, generarNumeroPedido, tsMs } from '@/lib/utils';
 import { evaluatePromos } from '@/lib/promos';
-import type { Pedido, PedidoTab, RutaEntrega } from '@/types';
+import type { Pedido, PedidoTab } from '@/types';
 
 const COLS: { key: PedidoTab; label: string; color: string }[] = [
   { key: 'activos',    label: 'Activos',    color: '#15803D' },
@@ -25,9 +26,9 @@ const PREV_STATE: Partial<Record<PedidoTab, PedidoTab>> = {
   preparando: 'activos', camino: 'preparando', entregado: 'camino',
 };
 
-function timeAgo(seconds?: number) {
-  if (!seconds) return '';
-  const diff = Math.floor(Date.now() / 1000) - seconds;
+function timeAgo(iso?: string) {
+  if (!iso) return '';
+  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
   if (diff < 60)   return 'ahora';
   if (diff < 3600) return `${Math.floor(diff / 60)} min`;
   if (diff < 86400) return `${Math.floor(diff / 3600)} h`;
@@ -102,7 +103,7 @@ export function OrdersPanel() {
           const bP = b.notaPendiente ? 1 : 0;
           if (aP !== bP) return bP - aP;
         }
-        return (a.createdAt?.seconds ?? 0) - (b.createdAt?.seconds ?? 0);
+        return tsMs(a.createdAt) - tsMs(b.createdAt);
       });
   }
 
@@ -113,7 +114,7 @@ export function OrdersPanel() {
       return;
     }
     try {
-      await updateDoc(doc(db, 'pedidos', pedidoId), { estado });
+      await updatePedido(pedidoId, { estado });
       showToast(`→ ${ESTADO_INFO[estado].label}`);
     } catch (e) {
       showToast('Sin permisos para actualizar este pedido', 'error');
@@ -130,7 +131,7 @@ export function OrdersPanel() {
     const ok = await confirm({ title: 'Eliminar pedido', message: '¿Eliminar este pedido?', danger: true, confirmLabel: 'Eliminar' });
     if (!ok) return;
     setDeleting(pedidoId);
-    await deleteDoc(doc(db, 'pedidos', pedidoId));
+    await deletePedido(pedidoId);
     setDeleting(null);
     showToast('Pedido eliminado');
   }
@@ -146,14 +147,14 @@ export function OrdersPanel() {
     setPinTarget(null);
     if (action === 'entregado') {
       try {
-        await updateDoc(doc(db, 'pedidos', pedidoId), { estado: 'entregado' });
+        await updatePedido(pedidoId, { estado: 'entregado' });
         showToast(`→ ${ESTADO_INFO['entregado'].label}`);
       } catch { showToast('Sin permisos para actualizar este pedido', 'error'); }
     } else {
       const ok = await confirm({ title: 'Eliminar pedido', message: '¿Eliminar este pedido?', danger: true, confirmLabel: 'Eliminar' });
       if (!ok) return;
       setDeleting(pedidoId);
-      await deleteDoc(doc(db, 'pedidos', pedidoId));
+      await deletePedido(pedidoId);
       setDeleting(null);
       showToast('Pedido eliminado');
     }
@@ -184,14 +185,10 @@ export function OrdersPanel() {
     try {
       if (enCamino.length > 0) {
         const fechaHoy = new Date().toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' });
-        const batchCamino = writeBatch(db);
-        enCamino.forEach(p => {
-          batchCamino.update(doc(db, 'pedidos', p.id), {
-            estado: 'preparando',
-            notaPendiente: `Pendiente del ${fechaHoy}`,
-          });
-        });
-        await batchCamino.commit();
+        await Promise.all(enCamino.map(p => updatePedido(p.id, {
+          estado: 'preparando',
+          notaPendiente: `Pendiente del ${fechaHoy}`,
+        })));
       }
 
       if (finalizados.length === 0) {
@@ -201,13 +198,12 @@ export function OrdersPanel() {
 
       const rutasMap: Record<string, { nombre: string; repartidor?: string }> = {};
       try {
-        const snap = await getDocs(query(collection(db, 'rutas'), where('estado', '==', 'completada')));
-        snap.forEach(d => {
-          const data = d.data() as RutaEntrega;
-          for (const pid of (data.pedidoIds ?? [])) {
-            if (!rutasMap[pid]) rutasMap[pid] = { nombre: data.nombre, repartidor: data.repartidor };
+        const rutas = await listRutasCompletadas();
+        for (const ruta of rutas) {
+          for (const pid of (ruta.pedidoIds ?? [])) {
+            if (!rutasMap[pid]) rutasMap[pid] = { nombre: ruta.nombre, repartidor: ruta.repartidor };
           }
-        });
+        }
       } catch {}
 
       const historialPedidos = finalizados.map(p => ({
@@ -221,20 +217,15 @@ export function OrdersPanel() {
       const fechaLabel = ahora.toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' });
       const totalRecaudo = entregados.reduce((s, p) => s + p.total, 0);
 
-      await addDoc(collection(db, 'historial_pedidos'), {
+      await createHistorialDia({
         fecha, fechaLabel,
         pedidos: historialPedidos,
         totalEntregados: entregados.length,
         totalCancelados: cancelados.length,
         totalRecaudo,
-        creadoEn: serverTimestamp(),
       });
 
-      for (let i = 0; i < finalizados.length; i += 499) {
-        const batch = writeBatch(db);
-        finalizados.slice(i, i + 499).forEach(p => batch.delete(doc(db, 'pedidos', p.id)));
-        await batch.commit();
-      }
+      await deletePedidosBulk(finalizados.map(p => p.id));
 
       const msgs = [`${finalizados.length} pedidos archivados`];
       if (enCamino.length > 0) msgs.push(`${enCamino.length} devueltos a Preparando`);
@@ -280,7 +271,7 @@ export function OrdersPanel() {
       const domicilio = parseFloat(manualForm.domicilio) || 0;
       const total = subtotal + domicilio - promoResult.descuentoProductos - promoResult.descuentoDomicilio;
 
-      const pedido: Omit<Pedido, 'id'> = {
+      const pedido: Omit<Pedido, 'id' | 'createdAt' | 'verificacion'> = {
         numero: generarNumeroPedido(),
         estado: 'activos',
         cliente: {
@@ -300,10 +291,9 @@ export function OrdersPanel() {
         esManual: true,
         notas: manualForm.notas.trim() || undefined,
         ...(promoResult.promosAplicadas.length > 0 && { promosAplicadas: promoResult.promosAplicadas }),
-        createdAt: serverTimestamp() as unknown as Pedido['createdAt'],
       };
 
-      await addDoc(collection(db, 'pedidos'), pedido);
+      await createPedido(pedido);
       showToast('Pedido manual creado', 'success');
       setManualOpen(false);
       setManualForm(DEFAULT_MANUAL);
@@ -352,7 +342,7 @@ export function OrdersPanel() {
                 </span>
               )}
             </div>
-            <span className="order-card-time"><Clock size={11} />{timeAgo(p.createdAt?.seconds)}</span>
+            <span className="order-card-time"><Clock size={11} />{timeAgo(p.createdAt)}</span>
           </div>
 
           <div className="order-card-client">{p.cliente?.nombre}</div>
@@ -429,7 +419,7 @@ export function OrdersPanel() {
             )}
           </div>
           <span style={{ fontSize: 11, color: 'var(--text3)', display: 'flex', alignItems: 'center', gap: 3 }}>
-            <Clock size={10} />{timeAgo(p.createdAt?.seconds)}
+            <Clock size={10} />{timeAgo(p.createdAt)}
           </span>
         </div>
         <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>{p.cliente?.nombre}</div>

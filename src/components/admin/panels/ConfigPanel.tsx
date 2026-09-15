@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Save, Upload } from 'lucide-react';
-import { setDoc, doc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { saveConfigMain, saveAdminSettings } from '@/lib/data/config';
 import { uploadImage } from '@/lib/cloudinary';
 import { useAppStore } from '@/stores/useAppStore';
 import { useAdminStore } from '@/stores/useAdminStore';
@@ -92,8 +91,8 @@ export function ConfigPanel() {
       };
 
       await Promise.all([
-        setDoc(doc(db, 'config', 'main'), updates, { merge: true }),
-        setDoc(doc(db, 'config', 'adminSettings'), pinUpdates, { merge: true }),
+        saveConfigMain(updates),
+        saveAdminSettings(pinUpdates),
       ]);
       setCfg(updates);
       setAdminSettings(pinUpdates);
@@ -110,7 +109,7 @@ export function ConfigPanel() {
   async function handleSaveCampos() {
     setSavingCampos(true);
     try {
-      await setDoc(doc(db, 'config', 'main'), { camposFormulario: campos }, { merge: true });
+      await saveConfigMain({ camposFormulario: campos });
       setCfg({ camposFormulario: campos });
       showToast('Campos actualizados', 'success');
     } catch (e) {

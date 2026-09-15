@@ -3,17 +3,16 @@
 // ═══════════════════════════════════════════════
 
 import { useEffect } from 'react';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { getConfigColores } from '@/lib/data/config';
 import { applyThemeColors } from '@/lib/utils';
 
 export function useTheme() {
   useEffect(() => {
     async function loadColors() {
       try {
-        const colorDoc = await getDoc(doc(db, 'config', 'colores'));
-        if (colorDoc.exists()) {
-          applyThemeColors(colorDoc.data() as Record<string, string>);
+        const colores = await getConfigColores();
+        if (colores) {
+          applyThemeColors(colores as unknown as Record<string, string>);
           return;
         }
       } catch (_) {}

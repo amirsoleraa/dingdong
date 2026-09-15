@@ -7,6 +7,11 @@ export function fmtPrice(n: number): string {
   return '$' + Math.round(n).toLocaleString('es-CO');
 }
 
+/** Epoch ms de un timestamp ISO, o 0 si no existe — para ordenar por fecha. */
+export function tsMs(iso?: string): number {
+  return iso ? new Date(iso).getTime() : 0;
+}
+
 /** Genera número de pedido criptográficamente seguro (ej: AB3F2E) */
 export function generarNumeroPedido(): string {
   const array = new Uint8Array(3);

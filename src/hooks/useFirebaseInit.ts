@@ -1,168 +1,80 @@
 import { useEffect } from 'react';
-import { onSnapshot, doc, collection } from 'firebase/firestore';
-import { onAuthStateChanged } from 'firebase/auth';
-import { db, auth, firebaseReady } from '@/lib/firebase';
+import { supabaseReady } from '@/lib/supabase';
 import { useAppStore } from '@/stores/useAppStore';
 import { applyThemeColors } from '@/lib/utils';
-import type { AppConfig, Producto, Categoria, Novedad, Publicidad, Adicional, Barrio, Domiciliario, Promocion } from '@/types';
+import { getConfigMain, getConfigColores } from '@/lib/data/config';
+import { listCategorias } from '@/lib/data/categorias';
+import { listProductos } from '@/lib/data/productos';
+import { listAdicionales } from '@/lib/data/adicionales';
+import { listNovedades } from '@/lib/data/novedades';
+import { listPublicidades } from '@/lib/data/publicidades';
+import { listBarrios } from '@/lib/data/barrios';
+import { listDomiciliarios } from '@/lib/data/domiciliarios';
+import { listPromociones } from '@/lib/data/promociones';
 
+/**
+ * Carga catálogo/config público al montar (fetch-once, no realtime).
+ * Datos de baja frecuencia de cambio para la Fase 1 — se puede añadir
+ * `postgres_changes` encima más adelante sin rehacer esto.
+ */
 export function useFirebaseInit() {
   const { setCfg, setProductos, setCategorias, setNovedades, setPublicidades, setAdicionales, setBarrios, setDomiciliarios, setPromociones, setLoading } = useAppStore();
 
   useEffect(() => {
-    if (!firebaseReady) {
+    if (!supabaseReady) {
       setLoading(false);
       return;
     }
 
-    // Track first-load of the 2 critical collections before hiding loading screen
-    let criticalReady = 0;
-    let loadingDone = false;
-    function markCritical() {
-      criticalReady++;
-      if (criticalReady >= 2 && !loadingDone) {
-        loadingDone = true;
-        setTimeout(() => setLoading(false), 500);
-      }
-    }
+    let cancelled = false;
 
-    const unsubs: (() => void)[] = [];
-
-    // Config principal
-    unsubs.push(
-      onSnapshot(doc(db, 'config', 'main'),
-        d => { if (d.exists()) setCfg(d.data() as Partial<AppConfig>); },
-        () => {}
-      )
-    );
-
-    // Colores / tema
-    unsubs.push(
-      onSnapshot(doc(db, 'config', 'colores'),
-        d => {
-          if (d.exists()) {
-            applyThemeColors(d.data() as Record<string, string>);
-          } else {
-            try {
-              const saved = localStorage.getItem('theme-colors');
-              if (saved) applyThemeColors(JSON.parse(saved));
-            } catch (_) {}
-          }
-        },
-        () => {
+    async function load() {
+      try {
+        const [cfg, colores] = await Promise.all([getConfigMain(), getConfigColores()]);
+        if (cancelled) return;
+        setCfg(cfg);
+        if (colores) {
+          applyThemeColors(colores as unknown as Record<string, string>);
+        } else {
           try {
             const saved = localStorage.getItem('theme-colors');
             if (saved) applyThemeColors(JSON.parse(saved));
-          } catch (_) {}
+          } catch { /* noop */ }
         }
-      )
-    );
-
-    // Categorías — crítica
-    unsubs.push(
-      onSnapshot(collection(db, 'categorias'),
-        snap => {
-          const cats: Record<string, Categoria> = {};
-          snap.forEach(d => { cats[d.id] = { id: d.id, ...d.data() } as Categoria; });
-          setCategorias(cats);
-          markCritical();
-        },
-        () => markCritical()
-      )
-    );
-
-    // Productos — crítica
-    unsubs.push(
-      onSnapshot(collection(db, 'productos'),
-        snap => {
-          const prods: Record<string, Producto> = {};
-          snap.forEach(d => { prods[d.id] = { id: d.id, ...d.data() } as Producto; });
-          setProductos(prods);
-          markCritical();
-        },
-        () => markCritical()
-      )
-    );
-
-    // Adicionales
-    unsubs.push(
-      onSnapshot(collection(db, 'adicionales'),
-        snap => {
-          const ads: Record<string, Adicional> = {};
-          snap.forEach(d => { ads[d.id] = { id: d.id, ...d.data() } as Adicional; });
-          setAdicionales(ads);
-        },
-        () => {}
-      )
-    );
-
-    // Novedades
-    unsubs.push(
-      onSnapshot(collection(db, 'novedades'),
-        snap => {
-          const novs: Record<string, Novedad> = {};
-          snap.forEach(d => { novs[d.id] = { id: d.id, ...d.data() } as Novedad; });
-          setNovedades(novs);
-        },
-        () => {}
-      )
-    );
-
-    // Publicidades
-    unsubs.push(
-      onSnapshot(collection(db, 'publicidades'),
-        snap => {
-          const pubs: Publicidad[] = [];
-          snap.forEach(d => pubs.push({ id: d.id, ...d.data() } as Publicidad));
-          pubs.sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0));
-          setPublicidades(pubs.filter(p => p.activa));
-        },
-        () => {}
-      )
-    );
-
-    // Barrios
-    unsubs.push(
-      onSnapshot(collection(db, 'barrios'),
-        snap => {
-          const bs: Record<string, Barrio> = {};
-          snap.forEach(d => { bs[d.id] = { id: d.id, ...d.data() } as Barrio; });
-          setBarrios(bs);
-        },
-        () => {}
-      )
-    );
-
-    // Domiciliarios — solo para usuarios autenticados (admin o domiciliario)
-    let domUnsub: (() => void) | null = null;
-    const authUnsub = onAuthStateChanged(auth, user => {
-      if (domUnsub) { domUnsub(); domUnsub = null; }
-      if (user) {
-        domUnsub = onSnapshot(collection(db, 'domiciliarios'),
-          snap => {
-            const ds: Record<string, Domiciliario> = {};
-            snap.forEach(d => { ds[d.id] = { id: d.id, ...d.data() } as Domiciliario; });
-            setDomiciliarios(ds);
-          },
-          () => {}
-        );
+      } catch {
+        try {
+          const saved = localStorage.getItem('theme-colors');
+          if (saved) applyThemeColors(JSON.parse(saved));
+        } catch { /* noop */ }
       }
-    });
-    unsubs.push(() => { authUnsub(); if (domUnsub) domUnsub(); });
 
-    // Promociones
-    unsubs.push(
-      onSnapshot(collection(db, 'promociones'),
-        snap => {
-          const ps: Promocion[] = [];
-          snap.forEach(d => ps.push({ id: d.id, ...d.data() } as Promocion));
-          ps.sort((a, b) => (b.createdAt?.seconds ?? 0) - (a.createdAt?.seconds ?? 0));
-          setPromociones(ps.filter(p => p.activa));
-        },
-        () => {}
-      )
-    );
+      try {
+        const [categorias, productos] = await Promise.all([listCategorias(), listProductos()]);
+        if (cancelled) return;
+        setCategorias(categorias);
+        setProductos(productos);
+      } catch { /* noop */ } finally {
+        if (!cancelled) setTimeout(() => setLoading(false), 500);
+      }
 
-    return () => unsubs.forEach(u => u());
+      try { if (!cancelled) setAdicionales(await listAdicionales()); } catch { /* noop */ }
+      try { if (!cancelled) setNovedades(await listNovedades()); } catch { /* noop */ }
+      try {
+        if (cancelled) return;
+        const pubs = await listPublicidades();
+        pubs.sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0));
+        setPublicidades(pubs.filter(p => p.activa));
+      } catch { /* noop */ }
+      try { if (!cancelled) setBarrios(await listBarrios()); } catch { /* noop */ }
+      try { if (!cancelled) setDomiciliarios(await listDomiciliarios()); } catch { /* noop */ }
+      try {
+        if (cancelled) return;
+        const promos = await listPromociones();
+        setPromociones(promos.filter(p => p.activa));
+      } catch { /* noop */ }
+    }
+
+    load();
+    return () => { cancelled = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 }
