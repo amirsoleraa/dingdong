@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { domSupabase } from '@/lib/supabase';
 import { subscribeToRutas, createRuta, updateRuta, deleteRuta } from '@/lib/data/rutas';
-import { updatePedido, listPedidosByIds } from '@/lib/data/pedidos';
+import { updatePedido, updatePedidosBulk, listPedidosByIds } from '@/lib/data/pedidos';
 import { createNotificacion } from '@/lib/data/notificaciones';
 import { createHistorialRuta } from '@/lib/data/historial';
 import { useAppStore } from '@/stores/useAppStore';
@@ -180,14 +180,12 @@ export function DomRutasPanel({ domiciliario }: DomRutasPanelProps) {
       const snapshot = ruta.pedidoIds.map(pid => pedidos[pid]).filter(Boolean);
       await Promise.all([
         updateRuta(ruta.id, { estado: 'completada', completadaEn: new Date().toISOString(), pedidosSnapshot: snapshot }, domSupabase),
-        ...ruta.pedidoIds.map(pid =>
-          updatePedido(pid, {
-            estado: 'entregado',
-            rutaNombre: ruta.nombre,
-            repartidorNombre: domiciliario.nombre,
-            domiciliarioId: domiciliario.id,
-          }, domSupabase).catch(() => {})
-        ),
+        updatePedidosBulk(ruta.pedidoIds, {
+          estado: 'entregado',
+          rutaNombre: ruta.nombre,
+          repartidorNombre: domiciliario.nombre,
+          domiciliarioId: domiciliario.id,
+        }, domSupabase).catch(() => {}),
       ]);
 
       // Save immediately to historial_rutas so domiciliario can see it right away

@@ -78,12 +78,14 @@ create policy admin_write on config_delivery_settings for all using (is_admin())
 create policy admin_only on config_admin_settings for all using (is_admin()) with check (is_admin());
 
 -- ── profiles (antes users/{uid}) ────────────────────────────────────────
--- El bootstrap del primer admin usa la service role key (bypassa RLS), no
--- hay carve-out alcanzable desde el cliente como el de config/adminReady.
+-- El bootstrap del primer admin y la creación de domiciliarios (vía admin,
+-- policy admin_manage) usan la service role key o la sesión del propio
+-- admin — ningún flujo legítimo necesita que un usuario se auto-inserte un
+-- profiles row, así que NO hay policy de insert alcanzable desde un
+-- usuario cualquiera (evita que un cliente se autoasigne role='domiciliario'
+-- con un domiciliario_id arbitrario).
 create policy self_or_admin_read on profiles for select
   using (id = auth.uid() or is_admin());
-create policy self_insert on profiles for insert
-  with check (id = auth.uid() and role <> 'admin');
 create policy self_update_no_role_change on profiles for update
   using (id = auth.uid())
   with check (id = auth.uid() and role = (select role from profiles where id = auth.uid()));

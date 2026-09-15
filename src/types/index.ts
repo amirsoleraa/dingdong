@@ -34,7 +34,7 @@ export interface DeliverySettings {
   origin_lng: number;
   origin_address: string;
   price_per_km: number;
-  min_delivery_fee?: number;
+  min_delivery_fee?: number | null;
   updated_at?: unknown;
 }
 
@@ -164,7 +164,6 @@ export interface Domiciliario {
   activo: boolean;
   pagoBase?: number;
   usuario?: string;
-  password?: string;
   uid?: string;
 }
 

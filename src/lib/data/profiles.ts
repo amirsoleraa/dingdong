@@ -15,9 +15,15 @@ export async function getProfile(userId: string, client: SupabaseClient = supaba
   return { id: data.id, role: data.role, email: data.email ?? undefined, domiciliarioId: data.domiciliario_id ?? undefined };
 }
 
+/**
+ * upsert (no insert): si se recrea un domiciliario con el mismo usuario y
+ * signUp() devuelve la cuenta de Auth ya existente en vez de un error (ver
+ * createThrowawayClient en DomiciliariosPanel), un insert chocaría con la
+ * primary key en vez de simplemente actualizar el profile.
+ */
 export async function createProfile(input: Profile, client: SupabaseClient = supabase): Promise<void> {
-  const { error } = await client.from('profiles').insert({
+  const { error } = await client.from('profiles').upsert({
     id: input.id, role: input.role, email: input.email, domiciliario_id: input.domiciliarioId,
-  });
+  }, { onConflict: 'id' });
   if (error) throw error;
 }

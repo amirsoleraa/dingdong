@@ -33,7 +33,8 @@ function toMainRow(cfg: Partial<AppConfig>): Record<string, unknown> {
 }
 
 export async function getConfigMain(): Promise<Partial<AppConfig>> {
-  const { data } = await supabase.from('config_main').select('*').maybeSingle();
+  const { data, error } = await supabase.from('config_main').select('*').maybeSingle();
+  if (error) throw error;
   return mapMain(data);
 }
 
@@ -63,7 +64,8 @@ function mapColores(row: Record<string, unknown> | null): ThemeColors {
 }
 
 export async function getConfigColores(): Promise<ThemeColors | null> {
-  const { data } = await supabase.from('config_colores').select('*').maybeSingle();
+  const { data, error } = await supabase.from('config_colores').select('*').maybeSingle();
+  if (error) throw error;
   return data ? mapColores(data) : null;
 }
 
@@ -100,7 +102,8 @@ function mapDelivery(row: Record<string, unknown> | null): DeliverySettings | nu
 }
 
 export async function getDeliverySettings(): Promise<DeliverySettings | null> {
-  const { data } = await supabase.from('config_delivery_settings').select('*').maybeSingle();
+  const { data, error } = await supabase.from('config_delivery_settings').select('*').maybeSingle();
+  if (error) throw error;
   return mapDelivery(data);
 }
 
@@ -118,7 +121,8 @@ export async function saveDeliverySettings(settings: DeliverySettings): Promise<
 }
 
 export async function getAdminSettings(): Promise<AdminSettings | null> {
-  const { data } = await supabase.from('config_admin_settings').select('*').maybeSingle();
+  const { data, error } = await supabase.from('config_admin_settings').select('*').maybeSingle();
+  if (error) throw error;
   if (!data) return null;
   return { historialPin: data.historial_pin as string | undefined, adminPin: data.admin_pin as string | undefined };
 }

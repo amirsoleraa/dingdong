@@ -102,6 +102,8 @@ export async function createPedido(input: Omit<Pedido, 'id' | 'createdAt' | 'ver
     mensaje_confirmacion: input.mensajeConfirmacion,
     location: input.location ?? null,
     promos_aplicadas: input.promosAplicadas ?? null,
+    es_manual: input.esManual ?? false,
+    notas: input.notas ?? null,
   };
   const { error } = await supabase.from('pedidos').insert(row);
   if (error) throw error;
@@ -133,16 +135,40 @@ export async function deletePedidosBulk(ids: string[], client: SupabaseClient = 
   if (error) throw error;
 }
 
-type PedidoChangeCallback = (event: 'INSERT' | 'UPDATE' | 'DELETE', row: Pedido | null, oldId: string | null) => void;
+/** Aplica el mismo patch a varios pedidos en una sola sentencia (atómica, a diferencia de un Promise.all de updates independientes). */
+export async function updatePedidosBulk(ids: string[], patch: Partial<Pedido>, client: SupabaseClient = supabase): Promise<void> {
+  if (ids.length === 0) return;
+  const row: Record<string, unknown> = {};
+  for (const [key, column] of Object.entries(UPDATABLE_FIELDS)) {
+    if (key in patch) row[column] = (patch as Record<string, unknown>)[key];
+  }
+  if (Object.keys(row).length === 0) return;
+  const { error } = await client.from('pedidos').update(row).in('id', ids);
+  if (error) throw error;
+}
 
+type PedidoChangeCallback = (event: 'INSERT' | 'UPDATE' | 'DELETE', row: Pedido | null, oldId: string | null, isInitial: boolean) => void;
+
+/**
+ * Suscripción en tiempo real a pedidos. Hace un fetch inicial antes de abrir
+ * el canal — sin esto, un consumidor que dependa solo de esta función (como
+ * el portal de domiciliario) arranca con la lista vacía hasta que ocurra el
+ * primer evento realtime. Los pedidos de la carga inicial se reportan con
+ * isInitial=true para que el llamador pueda distinguirlos de un pedido
+ * verdaderamente nuevo (ej. para no disparar una notificación de "nuevo
+ * pedido" por cada orden que ya existía al abrir el panel).
+ */
 export function subscribeToPedidos(callback: PedidoChangeCallback, client: SupabaseClient = supabase): () => void {
+  listPedidos(client)
+    .then(initial => { for (const row of Object.values(initial)) callback('INSERT', row, null, true); })
+    .catch(() => {});
   const channel = client
     .channel('pedidos-changes-' + Math.random().toString(36).slice(2))
     .on('postgres_changes', { event: '*', schema: 'public', table: 'pedidos' }, (payload) => {
       if (payload.eventType === 'DELETE') {
-        callback('DELETE', null, (payload.old as { id: string }).id);
+        callback('DELETE', null, (payload.old as { id: string }).id, false);
       } else {
-        callback(payload.eventType as 'INSERT' | 'UPDATE', mapRow(payload.new as PedidoRow), null);
+        callback(payload.eventType as 'INSERT' | 'UPDATE', mapRow(payload.new as PedidoRow), null, false);
       }
     })
     .subscribe();

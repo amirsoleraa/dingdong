@@ -174,7 +174,7 @@ export function DeliveryPanel() {
           origin_lng: originLng,
           origin_address: originAddress,
           price_per_km: pkm,
-          ...(mf ? { min_delivery_fee: mf } : {}),
+          min_delivery_fee: mf || null,
         });
       }
 

@@ -19,7 +19,7 @@ export function haversineKm(
 export function calcDeliveryFee(
   distKm: number,
   pricePerKm: number,
-  minFee = 0,
+  minFee?: number | null,
 ): number {
-  return Math.round(Math.max(distKm * pricePerKm, minFee));
+  return Math.round(Math.max(distKm * pricePerKm, minFee ?? 0));
 }

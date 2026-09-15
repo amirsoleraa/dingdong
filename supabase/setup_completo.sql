@@ -22,6 +22,14 @@ create table config_colores (
   brand text,
   brand_dark text,
   brand_light text,
+  brand_mid text,
+  bg2 text,
+  bg3 text,
+  surface text,
+  text2 text,
+  text3 text,
+  border text,
+  border2 text,
   bg text,
   text_color text,
   accent text,
@@ -374,12 +382,14 @@ create policy admin_write on config_delivery_settings for all using (is_admin())
 create policy admin_only on config_admin_settings for all using (is_admin()) with check (is_admin());
 
 -- ── profiles (antes users/{uid}) ────────────────────────────────────────
--- El bootstrap del primer admin usa la service role key (bypassa RLS), no
--- hay carve-out alcanzable desde el cliente como el de config/adminReady.
+-- El bootstrap del primer admin y la creación de domiciliarios (vía admin,
+-- policy admin_manage) usan la service role key o la sesión del propio
+-- admin — ningún flujo legítimo necesita que un usuario se auto-inserte un
+-- profiles row, así que NO hay policy de insert alcanzable desde un
+-- usuario cualquiera (evita que un cliente se autoasigne role='domiciliario'
+-- con un domiciliario_id arbitrario).
 create policy self_or_admin_read on profiles for select
   using (id = auth.uid() or is_admin());
-create policy self_insert on profiles for insert
-  with check (id = auth.uid() and role <> 'admin');
 create policy self_update_no_role_change on profiles for update
   using (id = auth.uid())
   with check (id = auth.uid() and role = (select role from profiles where id = auth.uid()));
@@ -416,7 +426,10 @@ create policy admin_delete on pedidos for delete using (is_admin());
 create or replace function enforce_dom_pedido_update_columns()
 returns trigger language plpgsql security definer as $$
 begin
-  if is_admin() then
+  -- auth.role() = 'service_role': scripts backend (migración, bootstrap) sin
+  -- sesión de usuario — is_admin()/is_domiciliario() siempre dan falso ahí
+  -- porque auth.uid() es null, así que se valida el rol de la conexión aparte.
+  if auth.role() = 'service_role' or is_admin() then
     return new;
   end if;
   if not is_domiciliario() then
@@ -486,7 +499,7 @@ create policy admin_delete on cupones for delete using (is_admin());
 create or replace function enforce_cupon_usos_increment()
 returns trigger language plpgsql security definer as $$
 begin
-  if is_admin() then return new; end if;
+  if auth.role() = 'service_role' or is_admin() then return new; end if;
   if new.usos <> old.usos + 1
      or new.tipo is distinct from old.tipo
      or new.valor is distinct from old.valor
@@ -640,3 +653,22 @@ create trigger trg_on_nuevo_pedido
 alter publication supabase_realtime add table pedidos;
 alter publication supabase_realtime add table notificaciones;
 alter publication supabase_realtime add table rutas;
+-- config_colores solo tenía 6 de las 14 variables de tema que la app
+-- realmente usa (ver src/lib/utils.ts COLOR_PRESETS) — causaba texto
+-- invisible en varias pantallas al faltar --text2, --text3, --border, etc.
+alter table config_colores
+  add column if not exists brand_mid text,
+  add column if not exists bg2 text,
+  add column if not exists bg3 text,
+  add column if not exists surface text,
+  add column if not exists text2 text,
+  add column if not exists text3 text,
+  add column if not exists border text,
+  add column if not exists border2 text;
+-- PromocionesPanel y HistorialPedidosPanel se suscriben a postgres_changes
+-- sobre 'promociones' e 'historial_pedidos', pero esas tablas nunca se
+-- agregaron a la publicación — el canal se abre pero jamás recibe eventos,
+-- así que crear/editar/eliminar una promoción no refresca la lista en
+-- pantalla (aunque el guardado en la base sí funciona).
+alter publication supabase_realtime add table promociones;
+alter publication supabase_realtime add table historial_pedidos;

@@ -5,7 +5,7 @@ import {
   XCircle, RotateCcw, ExternalLink,
 } from 'lucide-react';
 import { listRutasActivas, createRuta, updateRuta, deleteRuta } from '@/lib/data/rutas';
-import { updatePedido as updatePedidoRemote } from '@/lib/data/pedidos';
+import { updatePedido as updatePedidoRemote, updatePedidosBulk } from '@/lib/data/pedidos';
 import { createNotificacion } from '@/lib/data/notificaciones';
 import { useAdminStore } from '@/stores/useAdminStore';
 import { useAppStore } from '@/stores/useAppStore';
@@ -385,14 +385,12 @@ export function TrackingPanel() {
           completadaEn: new Date().toISOString(),
           pedidosSnapshot: snapshot,
         }),
-        ...ruta.pedidoIds.map(pid =>
-          updatePedidoRemote(pid, {
-            estado: 'entregado',
-            rutaNombre:       ruta.nombre,
-            repartidorNombre: ruta.repartidor     ?? '',
-            domiciliarioId:   ruta.domiciliarioId ?? '',
-          }).catch(() => {})
-        ),
+        updatePedidosBulk(ruta.pedidoIds, {
+          estado: 'entregado',
+          rutaNombre:       ruta.nombre,
+          repartidorNombre: ruta.repartidor     ?? '',
+          domiciliarioId:   ruta.domiciliarioId ?? '',
+        }).catch(() => {}),
       ]);
       setRutas(prev => prev.filter(r => r.id !== ruta.id));
       showToast('Ruta cerrada', 'success');

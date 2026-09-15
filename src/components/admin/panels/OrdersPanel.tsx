@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { Eye, Trash2, ChevronRight, ChevronLeft, Clock, RotateCcw, Archive, ExternalLink, Plus, PenLine, AlertTriangle } from 'lucide-react';
-import { updatePedido, deletePedido, deletePedidosBulk, createPedido } from '@/lib/data/pedidos';
+import { updatePedido, updatePedidosBulk, deletePedido, deletePedidosBulk, createPedido } from '@/lib/data/pedidos';
 import { listRutasCompletadas } from '@/lib/data/rutas';
 import { createHistorialDia } from '@/lib/data/historial';
 import { useAdminStore } from '@/stores/useAdminStore';
@@ -185,10 +185,10 @@ export function OrdersPanel() {
     try {
       if (enCamino.length > 0) {
         const fechaHoy = new Date().toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' });
-        await Promise.all(enCamino.map(p => updatePedido(p.id, {
+        await updatePedidosBulk(enCamino.map(p => p.id), {
           estado: 'preparando',
           notaPendiente: `Pendiente del ${fechaHoy}`,
-        })));
+        });
       }
 
       if (finalizados.length === 0) {

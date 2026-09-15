@@ -16,7 +16,7 @@ import { listAdicionales } from '@/lib/data/adicionales';
 import { listBarrios } from '@/lib/data/barrios';
 import { listDomiciliarios } from '@/lib/data/domiciliarios';
 import { listPromociones } from '@/lib/data/promociones';
-import { listPedidos, subscribeToPedidos } from '@/lib/data/pedidos';
+import { subscribeToPedidos } from '@/lib/data/pedidos';
 
 export function useAdminInit() {
   const { setCfg, setProductos, setCategorias, setCupones, setNovedades, setAdicionales, setBarrios, setDomiciliarios, setPromociones, showToast } = useAppStore();
@@ -28,8 +28,6 @@ export function useAdminInit() {
       setReady(true);
       return;
     }
-
-    let isFirstLoad = true;
 
     async function init() {
       try {
@@ -46,16 +44,13 @@ export function useAdminInit() {
         setCupones(cupones);
         setNovedades(novedades);
 
-        try { setAdicionales(await listAdicionales()); } catch { /* noop */ }
-        try { setBarrios(await listBarrios()); } catch { /* noop */ }
-        try { setDomiciliarios(await listDomiciliarios()); } catch { /* noop */ }
-        try {
-          const promos = await listPromociones();
-          setPromociones(promos.filter(p => p.activa));
-        } catch { /* noop */ }
-
-        const pedidosIniciales = await listPedidos();
-        setPedidos(() => pedidosIniciales);
+        const [adicionales, barrios, domiciliarios, promociones] = await Promise.allSettled([
+          listAdicionales(), listBarrios(), listDomiciliarios(), listPromociones(),
+        ]);
+        if (adicionales.status === 'fulfilled') setAdicionales(adicionales.value);
+        if (barrios.status === 'fulfilled') setBarrios(barrios.value);
+        if (domiciliarios.status === 'fulfilled') setDomiciliarios(domiciliarios.value);
+        if (promociones.status === 'fulfilled') setPromociones(promociones.value.filter(p => p.activa));
       } catch (e) {
         console.error('Error al inicializar admin:', e);
       }
@@ -63,10 +58,10 @@ export function useAdminInit() {
 
     init().then(() => setReady(true));
 
-    const unsubscribe = subscribeToPedidos((event, row, oldId) => {
+    const unsubscribe = subscribeToPedidos((event, row, oldId, isInitial) => {
       if (event === 'INSERT' && row) {
         setPedidos((prev) => ({ ...prev, [row.id]: row }));
-        if (!isFirstLoad) showToast(`🔔 Nuevo pedido #${row.numero}`);
+        if (!isInitial) showToast(`🔔 Nuevo pedido #${row.numero}`);
       } else if (event === 'UPDATE' && row) {
         setPedidos((prev) => ({ ...prev, [row.id]: row }));
       } else if (event === 'DELETE' && oldId) {
@@ -76,7 +71,6 @@ export function useAdminInit() {
           return next;
         });
       }
-      isFirstLoad = false;
     });
 
     return () => unsubscribe();
