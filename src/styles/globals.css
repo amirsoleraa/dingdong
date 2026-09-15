@@ -740,37 +740,41 @@ a { text-decoration: none; color: inherit; }
    Dark client theme — applied to storefront pages
    via document.documentElement.dataset.theme="dark"
    ═══════════════════════════════════════════════ */
+/* !important en cada valor: applyThemeColors() (lib/utils.ts) inyecta el
+   tema personalizado del admin como estilo inline sobre <html>, que de otra
+   forma le gana siempre a este selector por atributo — sin !important, un
+   admin con tema personalizado rompe el contraste del checkout oscuro. */
 [data-theme="dark"] {
-  --brand:       #FF6229;
-  --brand-dark:  #E0501A;
-  --brand-light: rgba(255,98,41,.15);
-  --brand-mid:   #FF7A42;
-  --accent:      #FFAD7A;
+  --brand:       #FF6229 !important;
+  --brand-dark:  #E0501A !important;
+  --brand-light: rgba(255,98,41,.15) !important;
+  --brand-mid:   #FF7A42 !important;
+  --accent:      #FFAD7A !important;
 
-  --bg:      #0D0B09;
-  --bg2:     #171310;
-  --bg3:     #211C15;
-  --surface: #1C1811;
+  --bg:      #0D0B09 !important;
+  --bg2:     #171310 !important;
+  --bg3:     #211C15 !important;
+  --surface: #1C1811 !important;
 
-  --text:  #F4EFE6;
-  --text2: #9A8878;
-  --text3: #5A4E42;
+  --text:  #F4EFE6 !important;
+  --text2: #9A8878 !important;
+  --text3: #5A4E42 !important;
 
-  --border:  rgba(255,255,255,.06);
-  --border2: rgba(255,255,255,.10);
+  --border:  rgba(255,255,255,.06) !important;
+  --border2: rgba(255,255,255,.10) !important;
 
-  --success:    #4CAF82;
-  --success-bg: rgba(76,175,130,.14);
-  --danger:     #FF5555;
-  --danger-bg:  rgba(255,85,85,.14);
-  --warning:    #FFB347;
-  --warning-bg: rgba(255,179,71,.14);
-  --info:       #64B5F6;
-  --info-bg:    rgba(100,181,246,.14);
+  --success:    #4CAF82 !important;
+  --success-bg: rgba(76,175,130,.14) !important;
+  --danger:     #FF5555 !important;
+  --danger-bg:  rgba(255,85,85,.14) !important;
+  --warning:    #FFB347 !important;
+  --warning-bg: rgba(255,179,71,.14) !important;
+  --info:       #64B5F6 !important;
+  --info-bg:    rgba(100,181,246,.14) !important;
 
-  --shadow:       0 2px 8px rgba(0,0,0,.5), 0 4px 20px rgba(0,0,0,.4);
-  --shadow-md:    0 6px 24px rgba(0,0,0,.6);
-  --shadow-lg:    0 10px 40px rgba(0,0,0,.65);
-  --shadow-xl:    0 24px 60px rgba(0,0,0,.8);
-  --shadow-brand: 0 6px 28px rgba(255,98,41,.45);
+  --shadow:       0 2px 8px rgba(0,0,0,.5), 0 4px 20px rgba(0,0,0,.4) !important;
+  --shadow-md:    0 6px 24px rgba(0,0,0,.6) !important;
+  --shadow-lg:    0 10px 40px rgba(0,0,0,.65) !important;
+  --shadow-xl:    0 24px 60px rgba(0,0,0,.8) !important;
+  --shadow-brand: 0 6px 28px rgba(255,98,41,.45) !important;
 }
